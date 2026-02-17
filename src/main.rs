@@ -1,15 +1,22 @@
-use std::{sync::{mpsc::Receiver, Arc, Mutex}, time::{Duration, Instant}};
+use std::{sync::{mpsc::{self, Receiver}, Arc, Mutex}, thread, time::{Duration, Instant}};
 
 use eframe::App;
-use egui::{include_image, pos2, vec2, Align2, Button, CentralPanel, Color32, Context, CornerRadius, FontId, Frame, Image, Layout, Margin, Pos2, ProgressBar, RichText, Sense, SidePanel, Slider, Ui};
+use egui::{include_image, pos2, vec2, Align2, Button, CentralPanel, Color32, Context, CornerRadius, Frame, Image, Layout, Margin, Pos2, ProgressBar, RichText, Sense, SidePanel, Slider, Ui};
 use hidapi::HidApi;
 
-use crate::{daemon::DaemonManager, dualsense::{BatteryInfo, DualSense, MicLedState}, firmware::FirmwareDownloader, profiles::{Profile, ProfileManager, SensitivityCurve}};
+use crate::{
+    daemon::DaemonManager,
+    dualsense::{BatteryInfo, DualSense, MicLedState},
+    firmware::{get_product_name, FirmwareDownloader},
+    profiles::{Profile, ProfileManager, SensitivityCurve},
+    constants::*
+};
 
 mod dualsense;
 mod firmware;
 mod profiles;
 mod daemon;
+mod constants;
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -34,7 +41,8 @@ enum ProgressUpdate {
     Progress(u32),
     Status(String),
     Complete,
-    Error(String)
+    Error(String),
+    LatestVersion(String)
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -108,6 +116,13 @@ struct DS4UApp {
     firmware_status: String,
     firmware_updating: bool,
 
+    controller_serial: Option<String>,
+    firmware_current_version: Option<u16>,
+    firmware_latest_version: Option<String>,
+    firmware_checking_latest: bool,
+    firmware_build_date: Option<String>,
+    firmware_build_time: Option<String>,
+
     status_message: String,
     error_message: String
 }
@@ -160,6 +175,13 @@ impl DS4UApp {
             firmware_status: String::new(),
             firmware_updating: false,
 
+            controller_serial: None,
+            firmware_current_version: None,
+            firmware_latest_version: None,
+            firmware_checking_latest: false,
+            firmware_build_date: None,
+            firmware_build_time: None,
+
             status_message: String::new(),
             error_message: String::new()
         };
@@ -171,7 +193,14 @@ impl DS4UApp {
     fn connect_controller(&mut self) {
         match DualSense::new(&self.api, None) {
             Ok(ds) => {
+                if let Ok((version, build_date, build_time)) = ds.get_firmware_info() {
+                    self.firmware_current_version = Some(version);
+                    self.firmware_build_date = Some(build_date);
+                    self.firmware_build_time = Some(build_time);
+                }
+                self.controller_serial = Some(ds.serial().to_string());
                 self.controller = Some(Arc::new(Mutex::new(ds)));
+                self.firmware_latest_version = None;
                 self.status_message = "Controller connected".to_string();
                 self.error_message.clear();
                 self.update_battery();
@@ -217,8 +246,13 @@ impl DS4UApp {
                     }
                     ProgressUpdate::Error(e) => {
                         self.firmware_updating = false;
+                        self.firmware_checking_latest = false;
                         self.error_message = e;
                         self.firmware_progress = 0;
+                    }
+                    ProgressUpdate::LatestVersion(v) => {
+                        self.firmware_latest_version = Some(v);
+                        self.firmware_checking_latest = false;
                     }
                 }
             }
@@ -264,7 +298,27 @@ impl DS4UApp {
                         strengths[i as usize] = self.triggers.strength;
                     }
 
-                    let params = [0u8; 9];
+                    let mut active_zones: u16 = 0;
+                    let mut strength_zones: u32 = 0;
+
+                    for i in 0..10 {
+                        if strengths[i] > 0 {
+                            let strength_value = ((strengths[i] - 1) & 0x07) as u32;
+                            strength_zones |= strength_value << (3 * i);
+                            active_zones |= 1 << i;
+                        }
+                    }
+
+                    let params = [
+                        (active_zones & 0xff) as u8,
+                        ((active_zones >> 8) & 0xff) as u8,
+                        (strength_zones & 0xff) as u8,
+                        ((strength_zones >> 8) & 0xff) as u8,
+                        ((strength_zones >> 16) & 0xff) as u8,
+                        ((strength_zones >> 24) & 0xff) as u8,
+                        0, 0, 0, 0
+                    ];
+
                     ctrl.set_trigger_effect(true, true, 0x21, &params)
                 },
             };
@@ -284,6 +338,13 @@ impl DS4UApp {
         self.apply_lightbar();
         self.apply_player_leds();
         self.current_profile = Some(profile.clone());
+    }
+
+    fn check_controller_connection(&mut self) {
+        if let Some(controller) = &self.controller 
+            && controller.lock().unwrap().get_battery().is_err() {
+                self.disconnect_controller(); 
+        }
     }
 
     fn check_for_controller(&mut self) {
@@ -312,6 +373,115 @@ impl DS4UApp {
         }
     }
 
+    fn fetch_latest_verision_async(&mut self) {
+        if self.firmware_checking_latest {
+            return;
+        }
+        
+        let Some(ref ctrl) = self.controller else { return };
+        let pid = ctrl.lock().unwrap().product_id();
+        let (tx, rx) = mpsc::channel();
+        let downloader = FirmwareDownloader::new();
+
+        self.firmware_checking_latest = true;
+        self.firmware_progress_rx = Some(rx);
+        thread::spawn(move || {
+            match downloader.get_latest_version() {
+                Ok((ds_ver, dse_ver)) => {
+                    let ver = if pid == DS_PID { ds_ver } else { dse_ver };
+                    let _ = tx.send(ProgressUpdate::LatestVersion(ver));
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressUpdate::Error(
+                        format!("Version check failed: {}", e)
+                    ));
+                }
+            }
+        });
+    }
+
+    fn flash_latest(&mut self) {
+        let Some(ref ctrl) = self.controller else { return };
+        let pid = ctrl.lock().unwrap().product_id();
+        let ctrl = Arc::clone(ctrl);
+
+        let (tx, rx) = mpsc::channel();
+
+        self.firmware_progress_rx = Some(rx);
+        self.firmware_updating = true;
+        self.firmware_progress = 0;
+        self.firmware_status = "Downloading latest firmware...".to_string();
+
+        thread::spawn(move || {
+            let downloader = FirmwareDownloader::new();
+            let tx_dl = tx.clone();
+            
+            let fw_data = match downloader.download_latest_firmware(pid, move |p| {
+                let _ = tx_dl.send(ProgressUpdate::Progress(p / 2));
+            }) {
+                Ok(d) => d,
+                Err(e) => {
+                    let _ = tx.send(ProgressUpdate::Error(e.to_string()));
+                    return;
+                }
+            };
+
+            let _ = tx.send(ProgressUpdate::Status("Flashing...".to_string()));
+            let tx_flash = tx.clone();
+            let result = ctrl.lock().unwrap().update_firmware(&fw_data, move |p| {
+                let _ = tx_flash.send(ProgressUpdate::Progress(50 + p / 2));
+            });
+
+            match result {
+                Ok(_) => { let _ = tx.send(ProgressUpdate::Complete); }
+                Err(e) => { let _ = tx.send(ProgressUpdate::Error(e.to_string())); }
+            }
+        });
+    }
+
+    fn flash_file(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Select firmware file")
+            .add_filter("Firmware binary", &["bin"])
+            .pick_file()
+        else { return };
+
+        let fw_data = match std::fs::read(&path) {
+            Ok(d) => d,
+            Err(e) => {
+                self.error_message = format!("Failed to read file: {}", e);
+                return;
+            }
+        };
+
+        let Some(ref ctrl) = self.controller else {
+            self.error_message = "No controller connected".to_string();
+            return;
+        };
+        let ctrl = Arc::clone(ctrl);
+
+        let (tx, rx) = mpsc::channel();
+
+        self.firmware_progress_rx = Some(rx);
+        self.firmware_updating = true;
+        self.firmware_progress = 0;
+        self.firmware_status = "Flasing from file...".to_string();
+
+        thread::spawn(move || {
+            let mut ctrl = ctrl.lock().unwrap();
+            let tx_progress = tx.clone();
+            
+            let result = ctrl.update_firmware(&fw_data, move |p| {
+                let _ = tx_progress.send(ProgressUpdate::Progress(p));
+            });
+
+            match result {
+                Ok(_)  => { let _ = tx.send(ProgressUpdate::Complete); }
+                Err(e) => { let _ = tx.send(ProgressUpdate::Error(e.to_string())); }
+            }
+        });
+    }
+
     //
     // RENDER/UI
     //
@@ -334,20 +504,173 @@ impl DS4UApp {
     }
 
     fn render_firmware_panel(&mut self, ui: &mut Ui) {
-        ui.label(RichText::new("Firmware Update").size(18.0).strong());
-        ui.add_space(10.0);
-        ui.colored_label(Color32::from_rgb(255, 200, 0), "USB connection required");
-        ui.add_space(10.0);
+        ui.label(RichText::new("Firmware").size(18.0).strong());
+        
+        ui.add_space(14.0);
 
-        if self.firmware_updating {
-            ui.label(&self.firmware_status);
-            ui.add(ProgressBar::new(self.firmware_progress as f32 / 100.0)
-                .text(format!("{}%", self.firmware_progress)));
+        let connected = self.controller.is_some();
+
+        let is_bt = self.controller.as_ref()
+            .map(|c| c.lock().unwrap().is_bluetooth())
+            .unwrap_or(false);
+
+        let model = self.controller.as_ref()
+            .map(|c| get_product_name(c.lock().unwrap().product_id()))
+            .unwrap_or("-");
+
+        let serial = self.controller_serial.clone().unwrap_or_else(|| "-".to_string());
+
+        let cur_str = self.firmware_current_version
+            .map(|v| format!("0x{:04X}", v))
+            .unwrap_or_else(|| 
+                if connected { "-".into() } else { "Not connected".into() });
+
+        let build_date = self.firmware_build_date.clone().unwrap_or("-".into());
+        let build_time = self.firmware_build_time.clone().unwrap_or("-".into());
+
+        let latest_str = self.firmware_latest_version.clone();
+        let checking = self.firmware_checking_latest;
+
+        let fw_updating = self.firmware_updating;
+        let fw_progress = self.firmware_progress;
+        let fw_status   = self.firmware_status.clone();
+
+        let b: Option<bool> = if let (Some(cur), Some(latest)) = 
+            (self.firmware_current_version, &latest_str) {
+            let cur_str = format!("{:04X}", cur);
+            let needs_update = latest.replace(".", "")
+                .trim_start_matches('0').to_uppercase() !=
+                cur_str.trim_start_matches('0').to_uppercase();
+            Some(needs_update)
         } else {
-            if ui.button("Update Firmware").clicked() {
-                
+            None
+        };
+
+        Frame::NONE
+            .fill(Color32::from_rgb(16, 24, 38))
+            .corner_radius(CornerRadius::same(8))
+            .inner_margin(Margin::same(14))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+
+                egui::Grid::new("fw_info_grid")
+                    .num_columns(2)
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(RichText::new("Model").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new(model).size(12.0));
+                        ui.end_row();
+
+                        ui.label(RichText::new("Serial").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new(serial).size(12.0).monospace());
+                        ui.end_row();
+
+                        ui.label(RichText::new("Build Date").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new(build_date).size(12.0));
+                        ui.end_row();
+                        
+                        ui.label(RichText::new("Build Time").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new(build_time).size(12.0));
+                        ui.end_row();
+
+                        ui.label(RichText::new("Current").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new(cur_str).size(12.0));
+                        ui.end_row();
+
+                        ui.label(RichText::new("Latest").color(Color32::GRAY).size(12.0));
+                        ui.horizontal(|ui| {
+                            if checking {
+                                ui.spinner();
+                                ui.label(RichText::new("Checking...").size(12.0));
+                            } else if let Some(ref ver) = latest_str {
+                                    ui.label(RichText::new(ver).size(12.0));
+                            } else {
+                                ui.label(RichText::new("-").size(12.0));
+                                if connected && ui.small_button("Check").clicked() {
+                                    self.fetch_latest_verision_async();
+                                }
+                            }
+                        });
+                        ui.end_row();
+                    });
+
+                if let Some(needs_update) = b {
+                    ui.add_space(10.0);
+                    if needs_update {
+                        ui.colored_label(
+                            Color32::from_rgb(255, 190, 50),
+                            "Update available"
+                        );
+                    } else {
+                        ui.colored_label(
+                            Color32::from_rgb(50, 200, 100),
+                            "Firmware is up to date"
+                        );
+                    }
+                }
+            });
+
+        ui.add_space(16.0);
+
+        if fw_updating {
+            ui.label(RichText::new(&fw_status).color(Color32::GRAY).size(12.0));
+
+            ui.add_space(6.0);
+
+            ui.add(
+                ProgressBar::new(fw_progress as f32 / 100.0)
+                    .text(format!("{}%", fw_progress))
+                    .animate(true)
+            );
+        } else {
+            ui.colored_label(
+                Color32::from_rgb(255, 200, 0),
+                "USB connection required for flashing"
+            );
+            
+            ui.add_space(10.0);
+
+            let mut ota_clicked  = false;
+            let mut file_clicked = false;
+
+            ui.horizontal(|ui| {
+                let ota_btn = Button::new("Download & Update")
+                    .min_size(vec2(200.0, 32.0));
+
+                if ui.add_enabled(connected && !is_bt, ota_btn).clicked() {
+                    ota_clicked = true;
+                }
+
+                ui.add_space(8.0);
+
+                let file_btn = Button::new("Update from File...")
+                    .min_size(vec2(160.0, 32.0));
+
+                if ui.add_enabled(connected && !is_bt, file_btn).clicked() {
+                    file_clicked = true;
+                }
+            });
+            
+            ui.colored_label(
+                Color32::from_rgb(255, 200, 0),
+                "WARNING: Do not disconnect controller during update.
+Ensure battery is above 10%.
+Update can take several minutes.
+Controller will disconnect when complete."
+            );
+
+            if ota_clicked  { self.flash_latest(); }
+            if file_clicked { self.flash_file();   }
+
+            if connected && is_bt {
+                ui.add_space(6.0);
+                ui.colored_label(
+                    Color32::from_rgb(180, 100, 100),
+                    "Disconnect Bluetooth and connect via USB to flash"
+                );
             }
         }
+
     }
 
     fn render_advanced(&mut self, ui: &mut Ui) {
@@ -399,6 +722,12 @@ impl DS4UApp {
                         });
                     }
                 } else { 
+                    let spinner = egui::Spinner::new()
+                        .size(12.0)
+                        .color(Color32::from_rgb(0, 112, 220));
+
+                    ui.add(spinner);
+
                     ui.label(RichText::new("Searching...")
                         .size(12.0)
                         .color(Color32::from_rgb(0, 112, 220)));
@@ -410,7 +739,7 @@ impl DS4UApp {
         ui.add_space(20.0);
 
         ui.with_layout(Layout::top_down(egui::Align::Center), |ui| {
-            ui.label(RichText::new("DS4U").size(24.0)
+            ui.label(RichText::new("DS4U🇺🇦").size(24.0)
                 .color(Color32::WHITE).strong());
 
             self.render_connection_status(ui);
@@ -940,11 +1269,11 @@ impl DS4UApp {
             ui.horizontal(|ui| {
                 ui.add_space(ui.available_width() / 2.0 - 100.0);
 
-                let spinner_angle = (time * 3.0) as f32;
-
-                ui.label(RichText::new("⟳")
+                let spinner = egui::Spinner::new()
                     .size(16.0)
-                    .color(Color32::from_rgb(0, 112, 220)));
+                    .color(Color32::from_rgb(0, 112, 220));
+
+                ui.add(spinner);
 
                 ui.label(RichText::new("Searching for controllers...")
                     .size(14.0)

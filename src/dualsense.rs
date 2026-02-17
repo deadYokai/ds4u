@@ -1,12 +1,10 @@
-use std::{thread::sleep, time::Duration};
+use std::{thread::sleep, time::{Duration, Instant}};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use hidapi::{HidApi, HidDevice};
 use crc::{Crc, CRC_32_ISO_HDLC};
 
-const DS_VID: u16 = 0x054c;
-const DS_PID: u16 = 0x0ce6;
-const DSE_PID: u16 = 0x0df2;
+use crate::constants::*;
 
 const OUTPUT_CRC32_SEED: u8 = 0xa2;
 
@@ -48,7 +46,7 @@ const DS_STATUS_CHARGING_SHIFT: u8 = 4;
 
 const DS_FEATURE_REPORT_FW: u8 = 0xf4;
 const DS_FEATURE_REPORT_FW_STATUS: u8 = 0xf5;
-const DS_FIRMARE_SIZE: usize = 950272;
+const DS_FIRMWARE_SIZE: usize = 950272;
 const DS_BATTERY_THRESHOLD: u8 = 10;
 
 const DS_TRIGGER_EFFECT_OFF: u8 = 0x05;
@@ -83,7 +81,8 @@ pub struct DualSense {
     device: HidDevice,
     is_bt: bool,
     output_seq: u8,
-    product_id: u16
+    product_id: u16,
+    serial: String
 }
 
 impl DualSense {
@@ -117,10 +116,35 @@ impl DualSense {
             })?;
 
         let product_id = device_info.product_id();
+        let serial = device_info.serial_number().unwrap_or("Unknown").to_string();
         let device = device_info.open_device(api)?;
         let is_bt = device_info.interface_number() == -1;
 
-        Ok(DualSense { device, is_bt, output_seq: 0, product_id })
+        Ok(DualSense { device, is_bt, output_seq: 0, product_id, serial })
+    }
+
+    pub fn get_firmware_info(&self) -> Result<(u16, String, String)> {
+        let mut buf = vec![0u8; 64];
+        buf[0] = 0x20;
+
+        let size = self.device.get_feature_report(&mut buf)
+            .context("Failed to read firmware version")?;
+
+        if size < 50 {
+            bail!("Feature report too short: {} bytes", size);
+        }
+
+        let update_version = u16::from_le_bytes([buf[44], buf[45]]);
+
+        let build_date = String::from_utf8_lossy(&buf[1..12])
+            .trim_end_matches('\0')
+            .to_string();
+        
+        let build_time = String::from_utf8_lossy(&buf[12..20])
+            .trim_end_matches('\0')
+            .to_string();
+
+        Ok((update_version, build_date, build_time))
     }
 
     pub fn is_bluetooth(&self) -> bool {
@@ -129,6 +153,10 @@ impl DualSense {
 
     pub fn product_id(&self) -> u16 {
         self.product_id
+    }
+
+    pub fn serial(&self) -> &str {
+        &self.serial
     }
 
     fn send_output_report(&mut self, data: &mut [u8]) -> Result<()> {
@@ -173,9 +201,9 @@ impl DualSense {
 
         let max_brightness = 255u16;
 
-        buf[offset + 45] = ((brightness as u16 * r as u16) / max_brightness) as u8;
-        buf[offset + 46] = ((brightness as u16 * g as u16) / max_brightness) as u8;
-        buf[offset + 47] = ((brightness as u16 * b as u16) / max_brightness) as u8;
+        buf[offset + 44] = ((brightness as u16 * r as u16) / max_brightness) as u8;
+        buf[offset + 45] = ((brightness as u16 * g as u16) / max_brightness) as u8;
+        buf[offset + 46] = ((brightness as u16 * b as u16) / max_brightness) as u8;
 
         self.send_output_report(&mut buf)
     }
@@ -184,7 +212,7 @@ impl DualSense {
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
 
-        buf[offset + 39] = DS_OUTPUT_VALID_FLAG2_LIGHTBAR_SETUP_CONTROL_ENABLE;
+        buf[offset + 38] = DS_OUTPUT_VALID_FLAG2_LIGHTBAR_SETUP_CONTROL_ENABLE;
         buf[offset + 41] = if enabled {
             DS_OUTPUT_LIGHTBAR_SETUP_LIGHT_ON
         } else {
@@ -214,7 +242,7 @@ impl DualSense {
         let offset = if self.is_bt { 3 } else { 1 };
 
         buf[offset + 1] = DS_OUTPUT_VALID_FLAG1_PLAYER_INDICATOR_CONTROL_ENABLE;
-        buf[offset + 44] = PLAYER_LED_PATTERNS[n as usize];
+        buf[offset + 43] = PLAYER_LED_PATTERNS[n as usize];
 
         self.send_output_report(&mut buf)
     }
@@ -265,12 +293,12 @@ impl DualSense {
         }
 
         buf[offset + 10] = mode;
-        for (i, &p) in params.iter().enumerate().take(9) {
+        for (i, &p) in params.iter().enumerate().take(10) {
             buf[offset + 11 + i] = p;
         }
 
         buf[offset + 21] = mode;
-        for (i, &p) in params.iter().enumerate().take(9) {
+        for (i, &p) in params.iter().enumerate().take(10) {
             buf[offset + 22 + i] = p;
         }
 
@@ -278,7 +306,7 @@ impl DualSense {
     }
 
     pub fn set_trigger_off(&mut self) -> Result<()> {
-        self.set_trigger_effect(true, true, DS_TRIGGER_EFFECT_OFF, &[0; 9])
+        self.set_trigger_effect(true, true, DS_TRIGGER_EFFECT_OFF, &[0; 10])
     }
 
     pub fn get_battery(&mut self) -> Result<BatteryInfo> {
@@ -324,9 +352,9 @@ impl DualSense {
             bail!("Firmware update not supported over Bluetooth.");
         }
 
-        if firmware_data.len() != DS_FIRMARE_SIZE {
+        if firmware_data.len() != DS_FIRMWARE_SIZE {
             bail!("Invalid firmware size: {} bytes (expected {})",
-                    firmware_data.len(), DS_FIRMARE_SIZE);
+                    firmware_data.len(), DS_FIRMWARE_SIZE);
         }
 
         let battery = self.get_battery()?;
@@ -377,7 +405,7 @@ impl DualSense {
         
         match self.device.get_feature_report(&mut buf) {
             Ok(size) if size == 64 => {
-                let current_version = u16::from_le_bytes([buf[48], buf[49]]);
+                let current_version = u16::from_le_bytes([buf[44], buf[45]]);
                 println!("Updating firmware for {} from 0x{:04X} to 0x{:04X}",
                     if self.product_id == DS_PID { "DualSense" } else { "DualSense Edge" },
                     current_version, fw_version);
@@ -401,7 +429,11 @@ impl DualSense {
     }
 
     fn firmware_wait_status(&self, expected: u8) -> Result<()> {
+        let start = Instant::now();
         loop {
+            if start.elapsed() > Duration::from_secs(30) {
+                bail!("Firmware update timeout");
+            }
             sleep(Duration::from_millis(10));
             let mut buf = vec![0u8; 64];
             buf[0] = DS_FEATURE_REPORT_FW_STATUS;
@@ -487,6 +519,7 @@ impl DualSense {
 
                 self.send_firmware_feature(&buf)?;
                 self.firmware_wait_status(0x01)?;
+                sleep(Duration::from_millis(10));
 
                 let progress = ((global_offset - 256) * 90 / (total_size - 256))
                     .clamp(0, 90) + 5;

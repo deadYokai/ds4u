@@ -3,9 +3,9 @@ use std::io::Read;
 use anyhow::{anyhow, bail, Result};
 use serde::Deserialize;
 
+use crate::constants::*;
+
 const FIRMWARE_BASE_URL: &str = "https://fwupdater.dl.playstation.net/fwupdater/";
-const DS_PID: u16 = 0x0ce6;
-const DSE_PID: u16 = 0x0df2;
 const FIRMWARE_SIZE: usize = 950272;
 
 #[derive(Deserialize)]
