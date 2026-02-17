@@ -6,7 +6,6 @@ use serde::Deserialize;
 use crate::constants::*;
 
 const FIRMWARE_BASE_URL: &str = "https://fwupdater.dl.playstation.net/fwupdater/";
-const FIRMWARE_SIZE: usize = 950272;
 
 #[derive(Deserialize)]
 struct FirmwareInfo {

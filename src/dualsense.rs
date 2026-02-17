@@ -22,11 +22,15 @@ const DS_OUTPUT_VALID_FLAG0_COMPATIBLE_VIBRATION: u8 = 1 << 0;
 const DS_OUTPUT_VALID_FLAG0_HAPTICS_SELECT: u8 = 1 << 1;
 const DS_OUTPUT_VALID_FLAG0_RIGHT_TRIGGER_MOTOR_ENABLE: u8 = 1 << 2;
 const DS_OUTPUT_VALID_FLAG0_LEFT_TRIGGER_MOTOR_ENABLE: u8 = 1 << 3;
+const DS_OUTPUT_VALID_FLAG0_HEADPHONE_VOLUME_ENABLE: u8 = 1 << 4;
+const DS_OUTPUT_VALID_FLAG0_SPEAKER_VOLUME_ENABLE: u8 = 1 << 5;
+const DS_OUTPUT_VALID_FLAG0_MICROPHONE_VOLUME_ENABLE: u8 = 1 << 6;
 const DS_OUTPUT_VALID_FLAG0_AUDIO_CONTROL_ENABLE: u8 = 1 << 7;
 
 const DS_OUTPUT_VALID_FLAG1_MIC_MUTE_LED_CONTROL_ENABLE: u8 = 1 << 0;
 const DS_OUTPUT_VALID_FLAG1_POWER_SAVE_CONTROL_ENABLE: u8 = 1 << 1;
 const DS_OUTPUT_VALID_FLAG1_LIGHTBAR_CONTROL_ENABLE: u8 = 1 << 2;
+const DS_OUTPUT_VALID_FLAG1_VIBRATION_ATTENUATION_ENABLE: u8 = 1 << 3;
 const DS_OUTPUT_VALID_FLAG1_PLAYER_INDICATOR_CONTROL_ENABLE: u8 = 1 << 4;
 
 const DS_OUTPUT_VALID_FLAG2_LED_BRIGHTNESS_CONTROL_ENABLE: u8 = 1 << 0;
@@ -46,7 +50,6 @@ const DS_STATUS_CHARGING_SHIFT: u8 = 4;
 
 const DS_FEATURE_REPORT_FW: u8 = 0xf4;
 const DS_FEATURE_REPORT_FW_STATUS: u8 = 0xf5;
-const DS_FIRMWARE_SIZE: usize = 950272;
 const DS_BATTERY_THRESHOLD: u8 = 10;
 
 const DS_TRIGGER_EFFECT_OFF: u8 = 0x05;
@@ -247,6 +250,47 @@ impl DualSense {
         self.send_output_report(&mut buf)
     }
 
+    pub fn set_speaker(&mut self, mode: &str) -> Result<()> {
+        let mut buf = self.init_output_report();
+        let offset = if self.is_bt { 3 } else { 1 };
+
+        buf[offset + 0] = DS_OUTPUT_VALID_FLAG0_AUDIO_CONTROL_ENABLE;
+
+        buf[offset + 7] = match mode {
+            "internal" => 3 << DS_OUTPUT_AUDIO_OUTPUT_PATH_SHIFT,
+            "headphone" => 0,
+            "both" => 2 << DS_OUTPUT_AUDIO_OUTPUT_PATH_SHIFT,
+            _ => 0
+        };
+
+        self.send_output_report(&mut buf)
+    }
+
+    pub fn set_volume(&mut self, volume: u8) -> Result<()> { 
+        let mut buf = self.init_output_report();
+        let offset = if self.is_bt { 3 } else { 1 };
+
+        let max_volume = 255u16;
+
+        buf[offset] = DS_OUTPUT_VALID_FLAG0_HEADPHONE_VOLUME_ENABLE;
+        buf[offset + 4] = (volume as u16 * 0x7f / max_volume) as u8;
+
+        buf[offset] |= DS_OUTPUT_VALID_FLAG0_SPEAKER_VOLUME_ENABLE;
+        buf[offset + 5] = (volume as u16 * 0x64 / max_volume) as u8;
+        
+        self.send_output_report(&mut buf)
+    }
+
+    pub fn set_vibration(&mut self, rumble: u8, trigger: u8) -> Result<()> {
+        let mut buf = self.init_output_report();
+        let offset = if self.is_bt { 3 } else { 1 };
+
+        buf[offset + 1]  = DS_OUTPUT_VALID_FLAG1_VIBRATION_ATTENUATION_ENABLE;
+        buf[offset + 36] = (rumble & 0x07) | ((trigger & 0x07) << 4);
+
+        self.send_output_report(&mut buf)
+    }
+
     pub fn set_mic(&mut self, enabled: bool) -> Result<()> {
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
@@ -352,9 +396,9 @@ impl DualSense {
             bail!("Firmware update not supported over Bluetooth.");
         }
 
-        if firmware_data.len() != DS_FIRMWARE_SIZE {
+        if firmware_data.len() != FIRMWARE_SIZE {
             bail!("Invalid firmware size: {} bytes (expected {})",
-                    firmware_data.len(), DS_FIRMWARE_SIZE);
+                    firmware_data.len(), FIRMWARE_SIZE);
         }
 
         let battery = self.get_battery()?;

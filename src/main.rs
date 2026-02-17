@@ -56,8 +56,16 @@ enum Section {
     Lightbar,
     Triggers,
     Sticks,
+    Haptics,
     Audio,
     Advanced
+}
+
+#[derive(PartialEq)]
+enum SpeakerMode {
+    Internal,
+    Headphone,
+    Both
 }
 
 struct LightbarState {
@@ -86,6 +94,16 @@ struct StickSettings {
     right_deadzone: f32,
 }
 
+struct AudioSettings {
+    volume: u8,
+    speaker_mode: SpeakerMode
+}
+
+struct VibrationSettings {
+    rumble: u8,
+    trigger: u8
+}
+
 struct DS4UApp {
     api: HidApi,
     controller: Option<Arc<Mutex<DualSense>>>,
@@ -109,6 +127,8 @@ struct DS4UApp {
     microphone: MicrophoneState,
     triggers: TriggerState,
     sticks: StickSettings,
+    audio: AudioSettings,
+    vibration: VibrationSettings,
 
     firmware_downloader: FirmwareDownloader,
     firmware_progress_rx: Option<Receiver<ProgressUpdate>>,
@@ -149,17 +169,24 @@ impl DS4UApp {
             last_battery_update: Instant::now() - Duration::from_secs(10),
 
             lightbar: LightbarState {
-                r: 0.0, g: 0.5, b: 1.5, brightness: 255.0, enabled: true
+                r: 0.0,
+                g: 0.5,
+                b: 1.5,
+                brightness: 255.0,
+                enabled: true
             },
 
             player_leds: 1,
 
             microphone: MicrophoneState {
-                enabled: false, led_state: MicLedState::Off
+                enabled: false,
+                led_state: MicLedState::Off
             },
 
             triggers: TriggerState {
-                mode: TriggerMode::Off, position: 0, strength: 5
+                mode: TriggerMode::Off,
+                position: 0,
+                strength: 5
             },
 
             sticks: StickSettings {
@@ -167,6 +194,16 @@ impl DS4UApp {
                 right_curve: SensitivityCurve::Default,
                 left_deadzone: 0.1,
                 right_deadzone: 0.1
+            },
+
+            audio: AudioSettings {
+                volume: 0,
+                speaker_mode: SpeakerMode::Internal
+            },
+
+            vibration: VibrationSettings {
+                rumble: 0,
+                trigger: 0
             },
 
             firmware_downloader: FirmwareDownloader::new(),
@@ -197,7 +234,12 @@ impl DS4UApp {
                     self.firmware_current_version = Some(version);
                     self.firmware_build_date = Some(build_date);
                     self.firmware_build_time = Some(build_time);
+                } else {
+                    self.firmware_current_version = None;
+                    self.firmware_build_date = None;
+                    self.firmware_build_time = None;
                 }
+
                 self.controller_serial = Some(ds.serial().to_string());
                 self.controller = Some(Arc::new(Mutex::new(ds)));
                 self.firmware_latest_version = None;
@@ -673,6 +715,52 @@ Controller will disconnect when complete."
 
     }
 
+    fn render_haptics_settings(&mut self, ui: &mut Ui) {
+        ui.heading(RichText::new("Haptic Settings").size(28.0));
+        
+        ui.add_space(30.0);
+
+        ui.label(RichText::new("Configure vibration and haptic feedback")
+            .size(14.0)
+            .color(Color32::GRAY));
+
+        ui.add_space(30.0);
+
+        ui.label(RichText::new("Vibration").size(18.0).strong());
+
+        ui.add_space(10.0);
+        
+        ui.label(RichText::new("Reduce haptic feedback strength (0 = full, 7 = minimum)")
+            .size(12.0)
+            .color(Color32::GRAY));
+
+        let mut changed = false;
+
+        ui.horizontal(|ui| {
+            ui.label("Rumble Motors:");
+            if ui.add(Slider::new(&mut self.vibration.rumble, 0..=7)
+                .text("")).changed() { changed = true; }
+            ui.label(format!("{}", self.vibration.rumble));
+        });
+
+        ui.add_space(10.0);
+        
+        ui.horizontal(|ui| {
+            ui.label("Trigger Vibration:");
+            if ui.add(Slider::new(&mut self.vibration.trigger, 0..=7)
+                .text("")).changed() { changed = true; }
+            ui.label(format!("{}", self.vibration.trigger));
+        });
+
+        if changed && let Some(controller) = &self.controller
+            && let Ok(mut ctrl) = controller.lock() {
+                let _ = ctrl.set_vibration(
+                    self.vibration.rumble,
+                    self.vibration.trigger
+                );
+        }
+    }
+
     fn render_advanced(&mut self, ui: &mut Ui) {
         ui.heading(RichText::new("Advanced Settings").size(28.0));
         ui.add_space(30.0);
@@ -687,15 +775,16 @@ Controller will disconnect when complete."
             .inner_margin(Margin::same(12))
             .show(ui, |ui| {
                 if self.controller.is_some() {
-                    ui.label(RichText::new("Connected")
-                        .size(12.0)
-                        .color(Color32::WHITE));
 
                     if let Some(battery) = &self.battery_info {
+                        ui.label(RichText::new(
+                                format!("Connected • {}", battery.status)
+                                )
+                            .size(12.0)
+                            .color(Color32::WHITE));
                         ui.add_space(10.0);
                         ui.horizontal(|ui| {
                             ui.label(format!("{}%", battery.capacity));
-
                             let battery_color = if battery.capacity > 50 {
                                 Color32::from_rgb(0, 200, 100)
                             } else if battery.capacity > 20 {
@@ -718,8 +807,12 @@ Controller will disconnect when complete."
                                 ),
                                 2.0,
                                 battery_color
-                            );
+                            ); 
                         });
+                    } else { 
+                        ui.label(RichText::new("Connected")
+                            .size(12.0)
+                            .color(Color32::WHITE));
                     }
                 } else { 
                     let spinner = egui::Spinner::new()
@@ -791,6 +884,7 @@ Controller will disconnect when complete."
             self.render_nav_btn(ui, "Lightbar", Section::Lightbar);
             self.render_nav_btn(ui, "Triggers", Section::Triggers);
             self.render_nav_btn(ui, "Sticks", Section::Sticks);
+            self.render_nav_btn(ui, "Haptics", Section::Haptics);
             self.render_nav_btn(ui, "Audio", Section::Audio);
             self.render_nav_btn(ui, "Advanced", Section::Advanced);
         }
@@ -816,17 +910,20 @@ Controller will disconnect when complete."
         ui.heading(RichText::new("Microphone & Audio").size(28.0));
         ui.add_space(10.0);
 
-        ui.label(RichText::new("Configure microphone")
+        ui.label(RichText::new("Configure Audio")
             .size(14.0)
             .color(Color32::GRAY));
 
         ui.add_space(30.0);
 
+        ui.label(RichText::new("Microphone").size(18.0).strong());
+        ui.add_space(10.0);
+
         ui.checkbox(&mut self.microphone.enabled, "Microphone Enabled");
 
         ui.add_space(20.0);
 
-        ui.label("LED:");
+        ui.label("Mic LED:");
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.microphone.led_state, MicLedState::Off, "Off");
             ui.selectable_value(&mut self.microphone.led_state, MicLedState::On, "On");
@@ -836,6 +933,67 @@ Controller will disconnect when complete."
         if ui.button("Apply").clicked() {
             self.apply_microphone();
         }
+
+        ui.add_space(30.0);
+        ui.separator();
+        ui.add_space(30.0);
+
+        ui.label(RichText::new("Speaker Mode").size(18.0).strong());
+        ui.add_space(10.0);
+
+        ui.horizontal(|ui| {
+            if ui.selectable_label(
+                self.audio.speaker_mode == SpeakerMode::Internal,
+                "Internal Speaker"
+            ).clicked() {
+                self.audio.speaker_mode = SpeakerMode::Internal;
+                if let Some(controller) = &self.controller
+                    && let Ok(mut ctrl) = controller.lock() {
+                    let _ = ctrl.set_speaker("internal");
+                }
+            }
+
+            if ui.selectable_label(
+                self.audio.speaker_mode == SpeakerMode::Headphone,
+                "Headphone"
+            ).clicked() {
+                self.audio.speaker_mode = SpeakerMode::Headphone;
+                if let Some(controller) = &self.controller
+                    && let Ok(mut ctrl) = controller.lock() {
+                    let _ = ctrl.set_speaker("Headphone");
+                }
+            }
+
+            if ui.selectable_label(
+                self.audio.speaker_mode == SpeakerMode::Both,
+                "Both"
+            ).clicked() {
+                self.audio.speaker_mode = SpeakerMode::Both;
+                if let Some(controller) = &self.controller
+                    && let Ok(mut ctrl) = controller.lock() {
+                    let _ = ctrl.set_speaker("both");
+                }
+            }
+
+        });
+
+        ui.add_space(30.0);
+        ui.separator();
+        ui.add_space(30.0);
+
+        ui.label(RichText::new("Volume").size(18.0).strong());
+        ui.add_space(10.0);
+
+        ui.horizontal(|ui| {
+            ui.label("Level:");
+            if ui.add(Slider::new(&mut self.audio.volume, 0..=255)
+                .text("")).changed()
+                && let Some(controller) = &self.controller
+                    && let Ok(mut ctrl) = controller.lock() {
+                    let _ = ctrl.set_volume(self.audio.volume); 
+            }
+            ui.label(format!("{}", self.audio.volume));
+        });
     }
 
     fn render_stick_visual(ui: &mut Ui, deadzone: f32) {
@@ -1234,6 +1392,7 @@ Controller will disconnect when complete."
                 Section::Lightbar => self.render_lightbar_section(ui),
                 Section::Triggers => self.render_triggers_section(ui),
                 Section::Sticks   => self.render_sticks_section(ui),
+                Section::Haptics  => self.render_haptics_settings(ui),
                 Section::Audio    => self.render_audio_settings(ui),
                 Section::Advanced => self.render_advanced(ui),
             }
@@ -1294,8 +1453,8 @@ Controller will disconnect when complete."
 impl App for DS4UApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.controller.is_none() {
-            ctx.request_repaint_after_secs(1.0);
-            if self.last_connection_check.elapsed() > Duration::from_secs(1) {
+            ctx.request_repaint_after_secs(0.2);
+            if self.last_connection_check.elapsed() > Duration::from_millis(200) {
             self.check_for_controller();
             self.last_connection_check = Instant::now();
             }
