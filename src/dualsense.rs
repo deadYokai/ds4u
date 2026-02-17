@@ -515,6 +515,7 @@ impl DualSense {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
 pub enum MicLedState {
     Off,
     On,
