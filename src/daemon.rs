@@ -3,7 +3,11 @@ use std::{sync::{Arc, Mutex}, thread::{self, sleep}, time::Duration};
 use anyhow::Result;
 use hidapi::HidApi;
 
-use crate::{dualsense::{self, DualSense}, profiles::{Profile, ProfileManager, TriggerMode}};
+use crate::{
+    dualsense::{self, DualSense},
+    profiles::{Profile, ProfileManager},
+    common::TriggerMode
+};
 
 pub struct DaemonManager {
     running: Arc<Mutex<bool>>,

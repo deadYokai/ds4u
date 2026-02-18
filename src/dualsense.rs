@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use hidapi::{HidApi, HidDevice};
 use crc::{Crc, CRC_32_ISO_HDLC};
 
-use crate::constants::*;
+use crate::common::*;
 
 const OUTPUT_CRC32_SEED: u8 = 0xa2;
 
@@ -30,8 +30,11 @@ const DS_OUTPUT_VALID_FLAG0_AUDIO_CONTROL_ENABLE: u8 = 1 << 7;
 const DS_OUTPUT_VALID_FLAG1_MIC_MUTE_LED_CONTROL_ENABLE: u8 = 1 << 0;
 const DS_OUTPUT_VALID_FLAG1_POWER_SAVE_CONTROL_ENABLE: u8 = 1 << 1;
 const DS_OUTPUT_VALID_FLAG1_LIGHTBAR_CONTROL_ENABLE: u8 = 1 << 2;
-const DS_OUTPUT_VALID_FLAG1_VIBRATION_ATTENUATION_ENABLE: u8 = 1 << 3;
+const DS_OUTPUT_VALID_FLAG1_RELEASE_LEDS: u8 = 1 << 3;
 const DS_OUTPUT_VALID_FLAG1_PLAYER_INDICATOR_CONTROL_ENABLE: u8 = 1 << 4;
+const DS_OUTPUT_VALID_FLAG1_HAPTIC_LOW_PASS_FILTER: u8 = 1 << 5;
+const DS_OUTPUT_VALID_FLAG1_VIBRATION_ATTENUATION_ENABLE: u8 = 1 << 6;
+const DS_OUTPUT_VALID_FLAG1_AUDIO_CONTROL2_ENABLE: u8 = 1 << 7;
 
 const DS_OUTPUT_VALID_FLAG2_LED_BRIGHTNESS_CONTROL_ENABLE: u8 = 1 << 0;
 const DS_OUTPUT_VALID_FLAG2_LIGHTBAR_SETUP_CONTROL_ENABLE: u8 = 1 << 1;
@@ -362,9 +365,9 @@ impl DualSense {
         }
 
         let (report, report_size, status_offset) = if self.is_bt {
-            (DS_INPUT_REPORT_BT, DS_INPUT_REPORT_BT_SIZE, 55)
+            (DS_INPUT_REPORT_BT, DS_INPUT_REPORT_BT_SIZE, 54)
         } else {
-            (DS_INPUT_REPORT_USB, DS_INPUT_REPORT_USB_SIZE, 54)
+            (DS_INPUT_REPORT_USB, DS_INPUT_REPORT_USB_SIZE, 53)
         }; 
 
         if buf[0] != report || size != report_size {
@@ -465,11 +468,7 @@ impl DualSense {
     fn send_firmware_feature(&self, buf: &[u8]) -> Result<()> {
         self.device.send_feature_report(buf)
             .map_err(|e| anyhow!("Failed to send firmware data: {}.
-                    Controller may have disconnected.", e))?;
-        if buf.len() != 64 {
-            bail!("FW feature report failed: sent {} of 64 bytes", buf.len());
-        }
-        Ok(())
+                    Controller may have disconnected.", e))
     }
 
     fn firmware_wait_status(&self, expected: u8) -> Result<()> {
@@ -488,28 +487,28 @@ impl DualSense {
             let status = buf[2];
 
             if phase != expected {
-                bail!("Unexpected phase: 0x{:02X} (expected 0x{:02X})", phase, expected);
+                bail!("Unexpected phase: 0x{:02x} (expected 0x{:02x})", phase, expected);
             }
 
             match status {
                 0x00 => return Ok(()),
                 0x01 | 0x10 => continue,
-                0x02 => bail!("Invalid firmware size"),
+                0x02 => bail!("Err 0x{:02x}: Invalid firmware size", status),
                 0x03 => {
                     if expected == 0x01 {
                         return Ok(());
                     }
-                    bail!("Invalid firmware");
+                    bail!("Err 0x{:02x}: Invalid firmware", status);
                 },
                 0x04 => {
                     if expected == 0x0 || expected == 0x02 {
                         sleep(Duration::from_secs(10));
                         continue;
                     }
-                    bail!("Invalid firmware");
+                    bail!("Err 0x{:02x}: Invalid firmware", status);
                 },
-                0x11 => bail!("Invalid firmware"),
-                0xFF => bail!("Internal error"),
+                0x11 => bail!("Err 0x{:02x}: Invalid firmware", status),
+                0xFF => bail!("Err 0x{:02x}: Internal error", status),
                 _ => bail!("Unknown error: 0x{:02x}", status)
             }
         }
@@ -565,9 +564,10 @@ impl DualSense {
                 self.firmware_wait_status(0x01)?;
                 sleep(Duration::from_millis(10));
 
-                let progress = ((global_offset - 256) * 90 / (total_size - 256))
-                    .clamp(0, 90) + 5;
-                progress_callback(progress as u32);
+                let progress = (global_offset.saturating_sub(256) * 90)
+                    / (total_size - 256).max(1) + 5;
+
+                progress_callback(progress.min(95) as u32);
             }
         }
 

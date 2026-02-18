@@ -1,7 +1,9 @@
-use std::{fs, path::PathBuf};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
+
+use crate::common::*;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Profile {
@@ -14,24 +16,13 @@ pub struct Profile {
     pub mic_enabled: bool,
     pub stick_left_curve: SensitivityCurve,
     pub stick_right_curve: SensitivityCurve,
-    pub trigger_mode: TriggerMode
+    pub trigger_mode: TriggerMode,
+    pub haptic_intensity: u8,
+    pub gyro_sensetivity: f32,
+    pub touchpad_enabled: bool,
+    pub button_remapping: HashMap<Button, Button>
 }
 
-#[derive(Deserialize, Serialize, Clone, PartialEq, Debug)]
-pub enum SensitivityCurve {
-    Default,
-    Quick,
-    Precise,
-    Steady,
-    Digital,
-    Dynamic
-}
-
-#[derive(Deserialize, Serialize, PartialEq, Clone)]
-pub enum TriggerMode {
-    Off,
-    Feedback
-}
 
 pub struct ProfileManager {
     profiles_dir: PathBuf
@@ -146,7 +137,11 @@ impl Default for Profile {
             mic_enabled: false,
             stick_left_curve: SensitivityCurve::Default,
             stick_right_curve: SensitivityCurve::Default,
-            trigger_mode: TriggerMode::Off
+            trigger_mode: TriggerMode::Off,
+            haptic_intensity: 0,
+            gyro_sensetivity: 1.0,
+            touchpad_enabled: true,
+            button_remapping: HashMap::new()
         }
     }
 }

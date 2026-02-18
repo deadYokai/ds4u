@@ -3,7 +3,7 @@ use std::io::Read;
 use anyhow::{anyhow, bail, Result};
 use serde::Deserialize;
 
-use crate::constants::*;
+use crate::common::*;
 
 const FIRMWARE_BASE_URL: &str = "https://fwupdater.dl.playstation.net/fwupdater/";
 
@@ -15,6 +15,7 @@ struct FirmwareInfo {
     dualsense_edge_version: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct FirmwareDownloader {
     client: reqwest::blocking::Client
 }
@@ -55,6 +56,8 @@ impl FirmwareDownloader {
         if !response.status().is_success() {
             bail!("Donwload failed with status: {}", response.status());
         }
+
+        println!("{:?}", url);
 
         let total_size = response.content_length().unwrap_or(FIRMWARE_SIZE as u64);
 

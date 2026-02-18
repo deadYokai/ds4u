@@ -8,15 +8,15 @@ use crate::{
     daemon::DaemonManager,
     dualsense::{BatteryInfo, DualSense, MicLedState},
     firmware::{get_product_name, FirmwareDownloader},
-    profiles::{Profile, ProfileManager, SensitivityCurve},
-    constants::*
+    profiles::{Profile, ProfileManager},
+    common::*
 };
 
 mod dualsense;
 mod firmware;
 mod profiles;
 mod daemon;
-mod constants;
+mod common;
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -45,12 +45,6 @@ enum ProgressUpdate {
     LatestVersion(String)
 }
 
-#[derive(PartialEq, Clone, Copy)]
-enum TriggerMode {
-    Off,
-    Feedback
-}
-
 #[derive(PartialEq)]
 enum Section {
     Lightbar,
@@ -59,13 +53,6 @@ enum Section {
     Haptics,
     Audio,
     Advanced
-}
-
-#[derive(PartialEq)]
-enum SpeakerMode {
-    Internal,
-    Headphone,
-    Both
 }
 
 struct LightbarState {
@@ -171,7 +158,7 @@ impl DS4UApp {
             lightbar: LightbarState {
                 r: 0.0,
                 g: 0.5,
-                b: 1.5,
+                b: 1.0,
                 brightness: 255.0,
                 enabled: true
             },
@@ -261,6 +248,10 @@ impl DS4UApp {
     }
 
     fn update_battery(&mut self) {
+        if self.firmware_updating {
+            // do not interfere with update
+            return;
+        }
         if let Some(controller) = &self.controller 
             && let Ok(mut ctrl) = controller.lock() {
                 if let Ok(info) = ctrl.get_battery() {
@@ -363,6 +354,7 @@ impl DS4UApp {
 
                     ctrl.set_trigger_effect(true, true, 0x21, &params)
                 },
+                TriggerMode::Bow | TriggerMode::Weapon | TriggerMode::Machine | TriggerMode::Galloping | TriggerMode::Vibration => todo!()
             };
         }
     }
@@ -391,6 +383,7 @@ impl DS4UApp {
 
     fn check_for_controller(&mut self) {
         let devices = dualsense::list_devices(&self.api);
+        self.last_connection_check = Instant::now();
 
         if !devices.is_empty() {
             self.connect_controller();
@@ -423,7 +416,7 @@ impl DS4UApp {
         let Some(ref ctrl) = self.controller else { return };
         let pid = ctrl.lock().unwrap().product_id();
         let (tx, rx) = mpsc::channel();
-        let downloader = FirmwareDownloader::new();
+        let downloader = self.firmware_downloader.clone();
 
         self.firmware_checking_latest = true;
         self.firmware_progress_rx = Some(rx);
@@ -454,8 +447,8 @@ impl DS4UApp {
         self.firmware_progress = 0;
         self.firmware_status = "Downloading latest firmware...".to_string();
 
+        let downloader = self.firmware_downloader.clone();
         thread::spawn(move || {
-            let downloader = FirmwareDownloader::new();
             let tx_dl = tx.clone();
             
             let fw_data = match downloader.download_latest_firmware(pid, move |p| {
@@ -718,7 +711,7 @@ Controller will disconnect when complete."
     fn render_haptics_settings(&mut self, ui: &mut Ui) {
         ui.heading(RichText::new("Haptic Settings").size(28.0));
         
-        ui.add_space(30.0);
+        ui.add_space(10.0);
 
         ui.label(RichText::new("Configure vibration and haptic feedback")
             .size(14.0)
@@ -960,7 +953,7 @@ Controller will disconnect when complete."
                 self.audio.speaker_mode = SpeakerMode::Headphone;
                 if let Some(controller) = &self.controller
                     && let Ok(mut ctrl) = controller.lock() {
-                    let _ = ctrl.set_speaker("Headphone");
+                    let _ = ctrl.set_speaker("headphone");
                 }
             }
 
@@ -1455,8 +1448,7 @@ impl App for DS4UApp {
         if self.controller.is_none() {
             ctx.request_repaint_after_secs(0.2);
             if self.last_connection_check.elapsed() > Duration::from_millis(200) {
-            self.check_for_controller();
-            self.last_connection_check = Instant::now();
+                self.check_for_controller();
             }
         } else {
             ctx.request_repaint_after_secs(5.0);
