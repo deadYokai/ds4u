@@ -485,7 +485,7 @@ impl DualSense {
         let (capacity, status) = match charging_status {
             0x0 => ((bat_data * 10 + 5).min(100), "Discharging"),
             0x1 => ((bat_data * 10 + 5).min(100), "Charging"),
-            0x2 => (100, "Full"),
+            0x2 => ((bat_data * 10 + 5).min(100), "Full"),
             0xa | 0xb => (0, "Not charging"),
             _ => (0, "Unknown")
         };

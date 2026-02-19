@@ -8,9 +8,19 @@ GUI tool for configuring DualSense controller.
 ## Features (W.I.P.)
 - Changing LED
 - Firmware update
-- Daemon support
+- Daemon
+- Live buttons preview
+- Buttons remapping (needs more research)
 
---
+## TODO:
+- Refactor
+- More comfy ui
+- Themes support
+- Controller ui navigation
+
+## Not planning:
+- DualSense Edge controller settings (because I don't have it)
+
 
 ## Support links:
 - Patreon: https://www.patreon.com/c/MyNameIsKitsune
