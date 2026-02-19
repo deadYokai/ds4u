@@ -1,4 +1,4 @@
-use std::{thread::sleep, time::{Duration, Instant}};
+use std::{sync::{atomic::{AtomicBool, Ordering}, Arc}, thread::sleep, time::{Duration, Instant}};
 
 use anyhow::{anyhow, bail, Context, Result};
 use hidapi::{HidApi, HidDevice};
@@ -88,7 +88,8 @@ pub struct DualSense {
     is_bt: bool,
     output_seq: u8,
     product_id: u16,
-    serial: String
+    serial: String,
+    update_mode: Arc<AtomicBool>
 }
 
 impl DualSense {
@@ -113,11 +114,11 @@ impl DualSense {
                 if serial.is_some() {
                     anyhow!(
                         "DualSense controller '{}' not found.
-                        Check connection and try refreshing",
+Check connection and try refreshing",
                         serial.unwrap())
                 } else {
                     anyhow!("No DualSense controller found.
-                        Please connect your controller via USB or Bluetooth.")
+Please connect your controller via USB or Bluetooth.")
                 }
             })?;
 
@@ -126,7 +127,25 @@ impl DualSense {
         let device = device_info.open_device(api)?;
         let is_bt = device_info.interface_number() == -1;
 
-        Ok(DualSense { device, is_bt, output_seq: 0, product_id, serial })
+        Ok(DualSense {
+            device,
+            is_bt,
+            output_seq: 0,
+            product_id,
+            serial,
+            update_mode: Arc::new(AtomicBool::new(false))
+        })
+    }
+
+    pub fn update_mode_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.update_mode)
+    }
+
+    pub fn set_update_mode(&self, active: bool) {
+        self.update_mode.store(active, Ordering::SeqCst);
+        if active {
+            sleep(Duration::from_millis(1100));
+        }
     }
 
     pub fn get_input_state(&mut self) -> Result<ControllerState> {
@@ -271,7 +290,7 @@ impl DualSense {
     fn send_output_report(&mut self, data: &mut [u8]) -> Result<()> {
         if self.is_bt {
             let len = data.len();
-            let crc = self.calc_crc32(&data[0..len - 4]);
+            let crc = self.calc_crc32(data);
             data[len - 4..len].copy_from_slice(&crc.to_le_bytes());
         }
 
@@ -282,8 +301,8 @@ impl DualSense {
     fn calc_crc32(&self, data: &[u8]) -> u32 {
         let mut digest = CRC32.digest();
         digest.update(&[OUTPUT_CRC32_SEED]);
-        digest.update(data);
-        !digest.finalize()
+        digest.update(&data[0..data.len()-4]);
+        digest.finalize()
     }
 
     fn init_output_report(&mut self) -> Vec<u8> {
@@ -296,7 +315,7 @@ impl DualSense {
             self.output_seq = (self.output_seq + 1) % 16;
             buf
         } else {
-            let mut buf = vec![0u8; 63];
+            let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE - 1];
             buf[0] = DS_OUTPUT_REPORT_USB;
             buf
         }
@@ -360,7 +379,7 @@ impl DualSense {
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
 
-        buf[offset + 0] = DS_OUTPUT_VALID_FLAG0_AUDIO_CONTROL_ENABLE;
+        buf[offset] = DS_OUTPUT_VALID_FLAG0_AUDIO_CONTROL_ENABLE;
 
         buf[offset + 7] = match mode {
             "internal" => 3 << DS_OUTPUT_AUDIO_OUTPUT_PATH_SHIFT,
@@ -596,29 +615,52 @@ impl DualSense {
                 bail!("Unexpected phase: 0x{:02x} (expected 0x{:02x})", phase, expected);
             }
 
-            match status {
-                0x00 => return Ok(()),
-                0x01 | 0x10 => {
-                    sleep(Duration::from_millis(10));
-                    continue
-                },
-                0x02 => bail!("Err 0x{:02x}: Invalid firmware size", status),
-                0x03 => {
-                    if expected == 0x01 {
-                        return Ok(());
+            match expected {
+                0x00 => match status {
+                    0x00 => return Ok(()),
+                    0x04 | 0x10 => {
+                        sleep(Duration::from_millis(10));
+                        continue
                     }
-                    bail!("Err 0x{:02x}: Invalid firmware", status);
+                    0x01 => bail!("Start error 0x01: firmware rejected"),
+                    0x02 => bail!("Start error 0x02: invalid firmware"),
+                    0x03 => bail!("Start error 0x03: invalid firmware"),
+                    0x05 => bail!("Start error 0x05: battery or power error"),
+                    0x06 => bail!("Start error 0x06: temperature or safety error"),
+                    0x11 => bail!("Start error 0x11: invalid firmware"),
+                    0xFF => bail!("Start error 0xFF: internal error"),
+                    _    => bail!("Start unknown status: 0x{:02x}", status),
                 },
-                0x04 => {
-                    if expected == 0x0 || expected == 0x02 {
-                        sleep(Duration::from_secs(10));
-                        continue;
+
+                0x01 => match status {
+                    0x00 | 0x03 => return Ok(()),
+                    0x01 | 0x10 => {
+                        sleep(Duration::from_millis(10));
+                        continue
                     }
-                    bail!("Err 0x{:02x}: Invalid firmware", status);
+                    0x02 => bail!("Write error 0x02: invalid firmware data"),
+                    0x04 => bail!("Write error 0x04: invalid firmware data"),
+                    0x11 => bail!("Write error 0x11: invalid firmware"),
+                    0xFF => bail!("Write error 0xFF: internal error"),
+                    _    => bail!("Write unknown status: 0x{:02x}", status),
                 },
-                0x11 => bail!("Err 0x{:02x}: Invalid firmware", status),
-                0xFF => bail!("Err 0x{:02x}: Internal error", status),
-                _ => bail!("Unknown error: 0x{:02x}", status)
+
+                0x02 => match status {
+                    0x00 => return Ok(()),
+                    0x10 => {
+                        sleep(Duration::from_millis(10));
+                        continue
+                    }
+                    0x01 => bail!("Verify error 0x01: firmware rejected"),
+                    0x02 => bail!("Verify error 0x02: checksum mismatch"),
+                    0x03 => bail!("Verify error 0x03: invalid firmware"),
+                    0x04 => bail!("Verify error 0x04: invalid firmware"),
+                    0x11 => bail!("Verify error 0x11: invalid firmware"),
+                    0xFF => bail!("Verify error 0xFF: internal error"),
+                    _    => bail!("Verify unknown status: 0x{:02x}", status),
+                },
+
+                _ => bail!("Unknown phase: 0x{:02x}", expected),
             }
         }
     }
@@ -650,16 +692,18 @@ impl DualSense {
     ) -> Result<()> {
         let total_size = firmware_data.len();
 
-        for offset in (0..total_size).step_by(0x8000) {
+        let write_len = total_size - 256;
+
+        for offset in (256..total_size).step_by(0x8000) {
             for chunk_offset in (0..0x8000).step_by(57) {
-                let remaining = 0x8000 - chunk_offset;
-                let packet_size = remaining.min(57);
                 let global_offset = offset + chunk_offset;
 
                 if global_offset >= total_size {
                     break;
                 }
 
+                let remaining = 0x8000 - chunk_offset;
+                let packet_size = remaining.min(57);
                 let actual_size = (total_size - global_offset).min(packet_size);
 
                 let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
@@ -673,8 +717,8 @@ impl DualSense {
                 self.firmware_wait_status(0x01)?;
                 sleep(Duration::from_millis(10));
 
-                let progress = (global_offset.saturating_sub(256) * 90)
-                    / (total_size - 256).max(1) + 5;
+                let written = global_offset - 256 + actual_size;
+                let progress = (written * 90 / write_len.max(1) + 5).min(95);
 
                 progress_callback(progress.min(95) as u32);
             }

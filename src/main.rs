@@ -1,4 +1,4 @@
-use std::{sync::{self, mpsc::{self, Receiver}, Arc, Mutex}, thread::{self, sleep}, time::{Duration, Instant}};
+use std::{sync::{self, atomic::Ordering, mpsc::{self, Receiver}, Arc, Mutex}, thread::{self, sleep}, time::{Duration, Instant}};
 
 use eframe::App;
 use egui::{include_image, pos2, vec2, Align2, Button, CentralPanel, Color32, Context, CornerRadius, Frame, Image, Layout, Margin, Painter, Pos2, ProgressBar, RichText, Sense, SidePanel, Slider, Ui};
@@ -103,6 +103,9 @@ struct DS4UApp {
     active_section: Section,
     show_profiles_panel: bool,
 
+    controller_is_bt: Option<bool>,
+    controller_product_id: Option<u16>,
+
     profile_manager: ProfileManager,
     current_profile: Option<Profile>,
     profile_edit_name: String,
@@ -125,7 +128,7 @@ struct DS4UApp {
     firmware_progress: u32,
     firmware_status: String,
     firmware_updating: bool,
-
+    update_mode_flag: Option<Arc<sync::atomic::AtomicBool>>,
     controller_serial: Option<String>,
     firmware_current_version: Option<u16>,
     firmware_latest_version: Option<String>,
@@ -139,7 +142,9 @@ struct DS4UApp {
     controller_state: Option<ControllerState>,
     input_state_rx: Option<mpsc::Receiver<ControllerState>>,
     input_polling: bool,
-    input_poll_stop: Option<Arc<sync::atomic::AtomicBool>>
+    input_poll_stop: Option<Arc<sync::atomic::AtomicBool>>,
+
+    pending_connect_since: Option<Instant>,
 }
 
 impl DS4UApp {
@@ -151,8 +156,11 @@ impl DS4UApp {
             controller: None,
             last_connection_check: Instant::now(),
             
-            active_section: Section::Lightbar,
+            active_section: Section::Inputs,
             show_profiles_panel: false,
+
+            controller_is_bt: None,
+            controller_product_id: None,
 
             profile_manager: ProfileManager::new(),
             current_profile: None,
@@ -207,6 +215,8 @@ impl DS4UApp {
             firmware_status: String::new(),
             firmware_updating: false,
 
+            update_mode_flag: None,
+
             controller_serial: None,
             firmware_current_version: None,
             firmware_latest_version: None,
@@ -220,7 +230,9 @@ impl DS4UApp {
             controller_state: None,
             input_state_rx: None,
             input_polling: false,
-            input_poll_stop: None
+            input_poll_stop: None,
+
+            pending_connect_since: None
         };
 
         app.check_for_controller();
@@ -240,12 +252,15 @@ impl DS4UApp {
 
         thread::spawn(move || {
             while !stop_clone.load(sync::atomic::Ordering::Relaxed) {
-                if let Ok(mut c) = ctrl.lock()
-                    && let Ok(state) = c.get_input_state() {
-                    let _ = tx.send(state);
+                if let Ok(mut c) = ctrl.try_lock() {
+                    if let Ok(state) = c.get_input_state() {
+                        let _ = tx.send(state);
+                    }
+                    drop(c);
+                } else {
+                    sleep(Duration::from_millis(8));
                 }
             }
-            sleep(Duration::from_millis(8));
         });
     }
 
@@ -274,14 +289,16 @@ impl DS4UApp {
                 }
 
                 self.controller_serial = Some(ds.serial().to_string());
+                self.controller_is_bt = Some(ds.is_bluetooth());
+                self.controller_product_id = Some(ds.product_id());
                 self.controller = Some(Arc::new(Mutex::new(ds)));
                 self.firmware_latest_version = None;
                 self.status_message = "Controller connected".to_string();
                 self.error_message.clear();
+                self.lightbar.enabled = true;
                 self.update_battery();
             }
-            Err(e) => {
-                self.error_message = format!("Failed to connect: {}", e);
+            Err(_) => {
                 self.controller = None;
             }
         }
@@ -290,26 +307,36 @@ impl DS4UApp {
     fn disconnect_controller(&mut self) {
         self.controller = None;
         self.battery_info = None;
+        self.controller_is_bt = None;
+        self.controller_product_id = None;
         self.status_message = "Controller disconnected".to_string();
     }
 
     fn update_battery(&mut self) {
-        if self.firmware_updating {
-            // do not interfere with update
-            return;
-        }
-        if let Some(controller) = &self.controller 
-            && let Ok(mut ctrl) = controller.lock() {
-                if let Ok(info) = ctrl.get_battery() {
-                    self.battery_info = Some(info);
-                    self.last_battery_update = Instant::now();
-                    return;
-                }
-        } else {
+        self.last_battery_update = Instant::now();
+        let in_update_mode = self.update_mode_flag
+            .as_ref()
+            .map(|f| f.load(Ordering::Relaxed))
+            .unwrap_or(false);
+
+        if in_update_mode {
             return;
         }
 
-        self.disconnect_controller();
+        if self.update_mode_flag.is_some() {
+            self.update_mode_flag = None;
+        }
+
+        let Some(controller) = &self.controller else { return };
+
+        let Ok(mut ctrl) = controller.try_lock() else { return };
+
+        if let Ok(info) = ctrl.get_battery() {
+            self.battery_info = Some(info);
+        } else {
+            drop(ctrl);
+            self.disconnect_controller();
+        }
     }
 
     fn check_firmware_progress(&mut self) {
@@ -322,12 +349,14 @@ impl DS4UApp {
                         self.firmware_updating = false;
                         self.status_message = "Firmware update completed".to_string();
                         self.firmware_progress = 100;
+                        self.update_mode_flag = None;
                     }
                     ProgressUpdate::Error(e) => {
                         self.firmware_updating = false;
                         self.firmware_checking_latest = false;
                         self.error_message = e;
                         self.firmware_progress = 0;
+                        self.update_mode_flag = None;
                     }
                     ProgressUpdate::LatestVersion(v) => {
                         self.firmware_latest_version = Some(v);
@@ -347,6 +376,16 @@ impl DS4UApp {
                     (self.lightbar.b * 255.0) as u8,
                     self.lightbar.brightness as u8
                 );
+        }
+    }
+
+    fn apply_lightbar_enable(&mut self) {
+        if let Some(controller) = &self.controller 
+        && let Ok(mut ctrl) = controller.lock() {
+            let _ = ctrl.set_lightbar_enabled(self.lightbar.enabled);
+        }
+        if self.lightbar.enabled {
+            self.apply_lightbar();
         }
     }
 
@@ -421,18 +460,53 @@ impl DS4UApp {
     }
 
     fn check_controller_connection(&mut self) {
-        if let Some(controller) = &self.controller 
-            && controller.lock().unwrap().get_battery().is_err() {
-                self.disconnect_controller(); 
+        let in_update_mode = self.update_mode_flag
+            .as_ref()
+            .map(|f| f.load(Ordering::Relaxed))
+            .unwrap_or(false);
+
+        if in_update_mode {
+            return;
+        }
+
+        let Some(serial) = self.controller_serial.clone() else { return };
+
+        if self.api.refresh_devices().is_err() {
+            return;
+        }
+
+        let still_present = self.api.device_list().any(|info| {
+            info.vendor_id() == DS_VID
+                && (info.product_id() == DS_PID || info.product_id() == DSE_PID)
+                && info.serial_number() == Some(serial.as_str())
+        });
+
+        if !still_present {
+            self.stop_input_polling();
+            self.disconnect_controller();
         }
     }
 
     fn check_for_controller(&mut self) {
-        let devices = dualsense::list_devices(&self.api);
         self.last_connection_check = Instant::now();
+     
+        if self.api.refresh_devices().is_err() {
+            return;
+        }
 
-        if !devices.is_empty() {
-            self.connect_controller();
+        if self.controller.is_none() && !dualsense::list_devices(&self.api).is_empty() {
+            match self.pending_connect_since {
+                None => { 
+                    self.pending_connect_since = Some(Instant::now());
+                }
+                Some(since) if since.elapsed() >= Duration::from_millis(400) => {
+                    self.pending_connect_since = None;
+                    self.connect_controller();
+                }
+                _ => {}
+            }
+        } else if self.controller.is_none() {
+            self.pending_connect_since = None;
         }
     }
 
@@ -482,8 +556,15 @@ impl DS4UApp {
     }
 
     fn flash_latest(&mut self) {
+        self.stop_input_polling();
+        
         let Some(ref ctrl) = self.controller else { return };
-        let pid = ctrl.lock().unwrap().product_id();
+        let pid = self.controller_product_id
+            .unwrap_or_else(|| ctrl.lock().unwrap().product_id());
+
+        let update_mode_flag = ctrl.lock().unwrap().update_mode_flag();
+        self.update_mode_flag = Some(Arc::clone(&update_mode_flag));
+
         let ctrl = Arc::clone(ctrl);
 
         let (tx, rx) = mpsc::channel();
@@ -494,7 +575,15 @@ impl DS4UApp {
         self.firmware_status = "Downloading latest firmware...".to_string();
 
         let downloader = self.firmware_downloader.clone();
+
         thread::spawn(move || {
+            {
+                let c = ctrl.lock().unwrap();
+                c.set_update_mode(true);
+            }
+
+            let mut ctrl = ctrl.lock().unwrap();
+
             let tx_dl = tx.clone();
             
             let fw_data = match downloader.download_latest_firmware(pid, move |p| {
@@ -502,6 +591,7 @@ impl DS4UApp {
             }) {
                 Ok(d) => d,
                 Err(e) => {
+                    ctrl.set_update_mode(false);
                     let _ = tx.send(ProgressUpdate::Error(e.to_string()));
                     return;
                 }
@@ -509,9 +599,11 @@ impl DS4UApp {
 
             let _ = tx.send(ProgressUpdate::Status("Flashing...".to_string()));
             let tx_flash = tx.clone();
-            let result = ctrl.lock().unwrap().update_firmware(&fw_data, move |p| {
+            let result = ctrl.update_firmware(&fw_data, move |p| {
                 let _ = tx_flash.send(ProgressUpdate::Progress(50 + p / 2));
             });
+
+            ctrl.set_update_mode(false);
 
             match result {
                 Ok(_) => { let _ = tx.send(ProgressUpdate::Complete); }
@@ -535,10 +627,16 @@ impl DS4UApp {
             }
         };
 
+        self.stop_input_polling();
+
         let Some(ref ctrl) = self.controller else {
             self.error_message = "No controller connected".to_string();
             return;
         };
+
+        let update_mode_flag = ctrl.lock().unwrap().update_mode_flag();
+        self.update_mode_flag = Some(Arc::clone(&update_mode_flag));
+
         let ctrl = Arc::clone(ctrl);
 
         let (tx, rx) = mpsc::channel();
@@ -549,12 +647,19 @@ impl DS4UApp {
         self.firmware_status = "Flasing from file...".to_string();
 
         thread::spawn(move || {
+            {
+                let c = ctrl.lock().unwrap();
+                c.set_update_mode(true);
+            }
+
             let mut ctrl = ctrl.lock().unwrap();
             let tx_progress = tx.clone();
             
             let result = ctrl.update_firmware(&fw_data, move |p| {
                 let _ = tx_progress.send(ProgressUpdate::Progress(p));
             });
+
+            ctrl.set_update_mode(false);
 
             match result {
                 Ok(_)  => { let _ = tx.send(ProgressUpdate::Complete); }
@@ -591,12 +696,10 @@ impl DS4UApp {
 
         let connected = self.controller.is_some();
 
-        let is_bt = self.controller.as_ref()
-            .map(|c| c.lock().unwrap().is_bluetooth())
-            .unwrap_or(false);
+        let is_bt = self.controller_is_bt.unwrap_or(false);
 
-        let model = self.controller.as_ref()
-            .map(|c| get_product_name(c.lock().unwrap().product_id()))
+        let model = self.controller_product_id
+            .map(get_product_name)
             .unwrap_or("-");
 
         let serial = self.controller_serial.clone().unwrap_or_else(|| "-".to_string());
@@ -618,14 +721,13 @@ impl DS4UApp {
 
         let b: Option<bool> = if let (Some(cur), Some(latest)) = 
             (self.firmware_current_version, &latest_str) {
-            let cur_str = format!("{:04X}", cur);
-            let needs_update = latest.replace(".", "")
-                .trim_start_matches('0').to_uppercase() !=
-                cur_str.trim_start_matches('0').to_uppercase();
-            Some(needs_update)
+            let latest_int = latest.to_lowercase().trim_start_matches("0x")
+                .parse::<u16>().unwrap();
+            Some(latest_int > cur)
         } else {
             None
         };
+
 
         Frame::NONE
             .fill(Color32::from_rgb(16, 24, 38))
@@ -703,12 +805,12 @@ impl DS4UApp {
                     .text(format!("{}%", fw_progress))
                     .animate(true)
             );
-        } else {
+        } else if let Some(needs_update) = b && needs_update {
             ui.colored_label(
                 Color32::from_rgb(255, 200, 0),
                 "USB connection required for flashing"
             );
-            
+
             ui.add_space(10.0);
 
             let mut ota_clicked  = false;
@@ -731,7 +833,7 @@ impl DS4UApp {
                     file_clicked = true;
                 }
             });
-            
+
             ui.colored_label(
                 Color32::from_rgb(255, 200, 0),
                 "WARNING: Do not disconnect controller during update.
@@ -750,6 +852,7 @@ Controller will disconnect when complete."
                     "Disconnect Bluetooth and connect via USB to flash"
                 );
             }
+
         }
 
     }
@@ -882,51 +985,51 @@ Controller will disconnect when complete."
         ui.add_space(20.0);
 
         if self.controller.is_some() {
-            ui.label(RichText::new("Profile")
-                .size(12.0)
-                .color(Color32::GRAY));
+            // ui.label(RichText::new("Profile")
+            //     .size(12.0)
+            //     .color(Color32::GRAY));
+            //
+            // ui.add_space(5.0);
+            //
+            // egui::ComboBox::from_id_salt("profile_combo")
+            //     .selected_text(self.current_profile.as_ref()
+            //         .map(|p| p.name.as_str())
+            //         .unwrap_or("Default"))
+            //     .width(ui.available_width())
+            //     .show_ui(ui, |ui| {
+            //         if ui.selectable_label
+            //             (self.current_profile.is_none(), "Default").clicked() {
+            //             self.current_profile = None;
+            //         }
+            //
+            //         for profile in self.profile_manager.list_profiles() {
+            //             if ui.selectable_label(
+            //                     self.current_profile.as_ref()
+            //                         .map(|p| &p.name) == Some(&profile.name),
+            //                     &profile.name)
+            //                 .clicked() {
+            //                     self.load_profile(&profile);
+            //             }
+            //         }
+            //     });
+            //
+            // ui.add_space(10.0);
+            //
+            // if ui.button("Manage Profiles").clicked() {
+            //     self.show_profiles_panel = !self.show_profiles_panel;
+            // }
+            //
+            // ui.add_space(30.0);
+            // ui.separator();
+            // ui.add_space(20.0);
 
-            ui.add_space(5.0);
-
-            egui::ComboBox::from_id_salt("profile_combo")
-                .selected_text(self.current_profile.as_ref()
-                    .map(|p| p.name.as_str())
-                    .unwrap_or("Default"))
-                .width(ui.available_width())
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label
-                        (self.current_profile.is_none(), "Default").clicked() {
-                        self.current_profile = None;
-                    }
-
-                    for profile in self.profile_manager.list_profiles() {
-                        if ui.selectable_label(
-                                self.current_profile.as_ref()
-                                    .map(|p| &p.name) == Some(&profile.name),
-                                &profile.name)
-                            .clicked() {
-                                self.load_profile(&profile);
-                        }
-                    }
-                });
-
-            ui.add_space(10.0);
-
-            if ui.button("Manage Profiles").clicked() {
-                self.show_profiles_panel = !self.show_profiles_panel;
-            }
-
-            ui.add_space(30.0);
-            ui.separator();
-            ui.add_space(20.0);
-
+            self.render_nav_btn(ui, "Inputs", Section::Inputs);
             self.render_nav_btn(ui, "Lightbar", Section::Lightbar);
             self.render_nav_btn(ui, "Triggers", Section::Triggers);
             self.render_nav_btn(ui, "Sticks", Section::Sticks);
             self.render_nav_btn(ui, "Haptics", Section::Haptics);
             self.render_nav_btn(ui, "Audio", Section::Audio);
             self.render_nav_btn(ui, "Advanced", Section::Advanced);
-            self.render_nav_btn(ui, "Inputs", Section::Inputs);
         }
 
         ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
@@ -959,20 +1062,27 @@ Controller will disconnect when complete."
         ui.label(RichText::new("Microphone").size(18.0).strong());
         ui.add_space(10.0);
 
-        ui.checkbox(&mut self.microphone.enabled, "Microphone Enabled");
+        if ui.checkbox(&mut self.microphone.enabled, "Microphone Enabled").changed() {
+            self.apply_microphone();
+        }
 
         ui.add_space(20.0);
 
         ui.label("Mic LED:");
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.microphone.led_state, MicLedState::Off, "Off");
-            ui.selectable_value(&mut self.microphone.led_state, MicLedState::On, "On");
-            ui.selectable_value(&mut self.microphone.led_state, MicLedState::Pulse, "Pulse");
+            if ui.selectable_value(&mut self.microphone.led_state, MicLedState::Off, "Off")
+                .clicked() {
+                self.apply_microphone();
+            }
+            if ui.selectable_value(&mut self.microphone.led_state, MicLedState::On, "On")
+                .clicked() {
+                self.apply_microphone();
+            }
+            if ui.selectable_value(&mut self.microphone.led_state, MicLedState::Pulse, "Pulse")
+                .clicked() {
+                self.apply_microphone();
+            }
         });
-
-        if ui.button("Apply").clicked() {
-            self.apply_microphone();
-        }
 
         ui.add_space(30.0);
         ui.separator();
@@ -1032,7 +1142,6 @@ Controller will disconnect when complete."
                     && let Ok(mut ctrl) = controller.lock() {
                     let _ = ctrl.set_volume(self.audio.volume); 
             }
-            ui.label(format!("{}", self.audio.volume));
         });
     }
 
@@ -1339,66 +1448,88 @@ Controller will disconnect when complete."
             .color(Color32::GRAY));
 
         ui.add_space(30.0);
-
+    
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Color").size(16.0).strong());
-            
-            ui.add_space(20.0);
-
-            let mut color = [self.lightbar.r, self.lightbar.g, self.lightbar.b];
-
-            if ui.color_edit_button_rgb(&mut color).changed() {
-                self.lightbar.r = color[0];
-                self.lightbar.g = color[1];
-                self.lightbar.b = color[2];
-                self.apply_lightbar();
+            if ui.selectable_label(
+                self.lightbar.enabled,
+                "On"
+            ).clicked() {
+                self.lightbar.enabled = true;
+                self.apply_lightbar_enable();
             }
 
+            if ui.selectable_label(
+                !self.lightbar.enabled,
+                "Off"
+            ).clicked() {
+                self.lightbar.enabled = false;
+                self.apply_lightbar_enable();
+            }
+        });      
+
+
+        if self.lightbar.enabled {
             ui.add_space(20.0);
 
-            ui.label("Presets:");
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Color").size(16.0).strong());
 
-            for (name, r, g, b) in [
-                ("Aesthetic", 0.0, 0.5, 1.0),
-                ("DevColor", 1.0, 0.63, 0.0),
-                ("Blue", 0.0, 0.0, 1.0),
-                ("Red", 1.0, 0.0, 0.0),
-                ("Green", 0.0, 1.0, 0.0),
-                ("Purple", 0.8, 0.0, 1.0),
-                ("White", 1.0, 1.0, 1.0)
-            ] {
-                let color_btn = Button::new(" ")
-                    .fill(Color32::from_rgb(
-                            (r * 255.0) as u8,
-                            (g * 255.0) as u8,
-                            (b * 255.0) as u8
-                        ))
-                    .min_size(vec2(32.0, 32.0));
+                ui.add_space(20.0);
 
-                if ui.add(color_btn).on_hover_text(name).clicked() {
-                    self.lightbar.r = r;
-                    self.lightbar.g = g;
-                    self.lightbar.b = b;
+                let mut color = [self.lightbar.r, self.lightbar.g, self.lightbar.b];
+
+                if ui.color_edit_button_rgb(&mut color).changed() {
+                    self.lightbar.r = color[0];
+                    self.lightbar.g = color[1];
+                    self.lightbar.b = color[2];
                     self.apply_lightbar();
                 }
-            }
-        });
 
-        ui.add_space(20.0);
+                ui.add_space(20.0);
 
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Brightness").size(16.0).strong());
-            
+                ui.label("Presets:");
+
+                for (name, r, g, b) in [
+                    ("Aesthetic", 0.0, 0.5, 1.0),
+                    ("DevColor", 1.0, 0.63, 0.0),
+                    ("Blue", 0.0, 0.0, 1.0),
+                    ("Red", 1.0, 0.0, 0.0),
+                    ("Green", 0.0, 1.0, 0.0),
+                    ("Purple", 0.8, 0.0, 1.0),
+                    ("White", 1.0, 1.0, 1.0)
+                ] {
+                    let color_btn = Button::new(" ")
+                        .fill(Color32::from_rgb(
+                                (r * 255.0) as u8,
+                                (g * 255.0) as u8,
+                                (b * 255.0) as u8
+                        ))
+                        .min_size(vec2(32.0, 32.0));
+
+                    if ui.add(color_btn).on_hover_text(name).clicked() {
+                        self.lightbar.r = r;
+                        self.lightbar.g = g;
+                        self.lightbar.b = b;
+                        self.apply_lightbar();
+                    }
+                }
+            });
+
             ui.add_space(20.0);
 
-            if ui.add(Slider::new(&mut self.lightbar.brightness, 0.0..=255.0)
-                .text("").show_value(false)).changed() {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Brightness").size(16.0).strong());
+
+                ui.add_space(20.0);
+
+                if ui.add(Slider::new(&mut self.lightbar.brightness, 0.0..=255.0)
+                    .text("").show_value(false)).changed() {
                     self.apply_lightbar();
-            }
+                }
 
-            ui.label(format!("{}%", (self.lightbar.brightness / 255.0 * 100.0) as u8));
-        });
-
+                ui.label(format!("{}%", (self.lightbar.brightness / 255.0 * 100.0) as u8));
+            });
+        }
         ui.add_space(30.0);
         ui.separator();
         ui.add_space(30.0);
@@ -1693,12 +1824,12 @@ Controller will disconnect when complete."
 
         Self::render_live_stick(
             &p, pt(150.0, 270.0), 42.0,
-            [lx, ly], buttons & BTN_L3 != 0, col_accent, col_btn_off, col_btn_edge,
+            [lx, ly], buttons & BTN_L3 != 0, [col_accent, col_btn_off, col_btn_edge],
         );
 
         Self::render_live_stick(
             &p, pt(440.0, 270.0), 42.0,
-            [rx_ax, ry_ax], buttons & BTN_R3 != 0, col_accent, col_btn_off, col_btn_edge,
+            [rx_ax, ry_ax], buttons & BTN_R3 != 0, [col_accent, col_btn_off, col_btn_edge],
         );
 
         p.text(pt(150.0, 320.0), Align2::CENTER_CENTER, "L3",
@@ -1721,14 +1852,12 @@ Controller will disconnect when complete."
         radius: f32,
         raw: [u8; 2],
         pressed: bool,
-        col_dot: Color32,
-        col_bg: Color32,
-        col_edge: Color32
+        colors: [Color32; 3]
     ) {
-        p.circle_filled(center, radius, col_bg);
+        p.circle_filled(center, radius, colors[1]);
         p.circle_stroke(center, radius,
             egui::Stroke::new(if pressed { 2.5 } else { 1.5 },
-                if pressed { col_dot } else { col_edge }));
+                if pressed { colors[0] } else { colors[2] }));
 
         p.circle_stroke(center, radius * 0.55,
             egui::Stroke::new(0.5, Color32::from_rgb(40, 55, 80)));
@@ -1739,7 +1868,7 @@ Controller will disconnect when complete."
             center.x + nx * (radius - 10.0),
             center.y + ny * (radius - 10.0),
         );
-        p.circle_filled(dot, 8.0, col_dot);
+        p.circle_filled(dot, 8.0, colors[0]);
         p.circle_stroke(dot, 8.0, egui::Stroke::new(1.0, Color32::WHITE));
     }
 
@@ -1769,7 +1898,8 @@ Controller will disconnect when complete."
 
             let controller_pic = Image::new(include_image!("../assets/controller.svg"))
                 .maintain_aspect_ratio(true)
-                .max_width(350.0);
+                .max_width(350.0)
+                .tint(Color32::from_white_alpha(alpha));
 
             ui.add(controller_pic);
  
@@ -1798,14 +1928,6 @@ Controller will disconnect when complete."
                     .size(14.0)
                     .color(Color32::from_rgb(0, 112, 220)));
             });
-
-            ui.add_space(40.0);
-
-            if ui.button(RichText::new("Refresh").size(14.0))
-                .clicked() {
-                self.check_for_controller();
-            }
-
         });
     }
 }
@@ -1813,32 +1935,32 @@ Controller will disconnect when complete."
 impl App for DS4UApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.controller.is_none() {
-            ctx.request_repaint_after_secs(0.2);
             if self.last_connection_check.elapsed() > Duration::from_millis(200) {
                 self.check_for_controller();
             }
+            ctx.request_repaint_after_secs(0.2);
         } else {
             if self.active_section == Section::Inputs {
+                if !self.input_polling {
+                    self.start_input_polling();
+                }
+
                 if let Some(rx) = &self.input_state_rx {
                     while let Ok(state) = rx.try_recv() {
                         self.controller_state = Some(state);
                     }
                 }
 
-                if !self.input_polling {
-                    self.start_input_polling();
-                }
                 ctx.request_repaint();
-            } else {
-                if self.input_polling {
-                    self.stop_input_polling();
-                }
-
-                ctx.request_repaint_after_secs(5.0);
-                if self.last_battery_update.elapsed() > Duration::from_secs(5) {
-                    self.update_battery();
-                }
+            } else if self.input_polling {
+                self.stop_input_polling();
             }
+
+            self.check_controller_connection();
+            if self.last_battery_update.elapsed() > Duration::from_secs(2) {
+                self.update_battery();
+            }
+            ctx.request_repaint_after_secs(2.0);
         }
 
         self.check_firmware_progress();

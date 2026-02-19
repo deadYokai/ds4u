@@ -5,6 +5,10 @@
 
 GUI tool for configuring DualSense controller.
 
+### WARNING
+
+Bluetooth is buggy, so i recommend USB for now
+
 ## Features (W.I.P.)
 - Changing LED
 - Firmware update
