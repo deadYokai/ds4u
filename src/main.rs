@@ -973,9 +973,19 @@ Controller will disconnect when complete."
     fn render_sidebar(&mut self, ui: &mut Ui) {
         ui.add_space(20.0);
 
-        ui.with_layout(Layout::top_down(egui::Align::Center), |ui| {
-            ui.label(RichText::new("DS4U🇺🇦").size(24.0)
-                .color(Color32::WHITE).strong());
+        ui.with_layout(Layout::top_down(egui::Align::Min), |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("DS4U").size(24.0)
+                    .color(Color32::WHITE).strong());
+
+                let (rect, _) = ui.allocate_exact_size(vec2(32.0, 18.0), Sense::hover());
+                let p = ui.painter();
+                let top = egui::Rect::from_min_max(rect.min, rect.min + vec2(32.0, 9.0));
+                let bot = egui::Rect::from_min_max(rect.min + vec2(0.0, 9.0), rect.max);
+                
+                p.rect_filled(top, 0.0, Color32::from_rgb(0, 87, 183));
+                p.rect_filled(bot, 0.0, Color32::from_rgb(255, 221, 0));
+            });
 
             self.render_connection_status(ui);
         });
@@ -1278,7 +1288,7 @@ Controller will disconnect when complete."
     }
 
     fn render_sticks_section(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Stick Sensitivity").size(28.0));
+        ui.heading(RichText::new("Stick Sensitivity (demo only)").size(28.0));
 
         ui.add_space(10.0);
 
