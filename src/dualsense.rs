@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use hidapi::{HidApi, HidDevice};
 use crc::{Crc, CRC_32_ISO_HDLC};
 
-use crate::common::*;
+use crate::{common::*, inputs::*};
 
 const OUTPUT_CRC32_SEED: u8 = 0xa2;
 
@@ -129,8 +129,111 @@ impl DualSense {
         Ok(DualSense { device, is_bt, output_seq: 0, product_id, serial })
     }
 
+    pub fn get_input_state(&mut self) -> Result<ControllerState> {
+        let mut buf = vec![0u8; DS_INPUT_REPORT_BT_SIZE];
+        let size = self.device.read_timeout(&mut buf, 1000)?;
+
+        if size == 0 {
+            bail!("Timeout reading input state");
+        }
+
+        let (id, expected_size, offset) = if self.is_bt {
+            (DS_INPUT_REPORT_BT, DS_INPUT_REPORT_BT_SIZE, 2)
+        } else {
+            (DS_INPUT_REPORT_USB, DS_INPUT_REPORT_USB_SIZE, 1)
+        };
+
+        if buf[0] != id || size != expected_size {
+            bail!(
+                "Unexpected input report: id=0x{:02X} size={} (expected id=0x{:02X} size={})",
+                buf[0], size, id, expected_size
+            );
+        }
+
+        let d = &buf[offset..];
+
+        let left_x = d[0];
+        let left_y = d[1];
+        let right_x = d[2];
+        let right_y = d[3];
+        let l2 = d[4];
+        let r2 = d[5];
+
+        let dpad = d[7] & 0xf;
+
+        let buttons = {
+            let b0 = d[7];
+            let b1 = d[8];
+            let b2 = d[9];
+            let mut b: u32 = 0;
+
+            if b0 & 0x10 != 0 { b |=  BTN_SQUARE; }
+            if b0 & 0x20 != 0 { b |=  BTN_CROSS; }
+            if b0 & 0x40 != 0 { b |=  BTN_CIRCLE; }
+            if b0 & 0x80 != 0 { b |=  BTN_TRIANGLE; }
+            if b1 & 0x01 != 0 { b |=  BTN_L1; }
+            if b1 & 0x02 != 0 { b |=  BTN_R1; }
+            if b1 & 0x04 != 0 { b |=  BTN_L2; }
+            if b1 & 0x08 != 0 { b |=  BTN_R2; }
+            if b1 & 0x10 != 0 { b |=  BTN_CREATE; }
+            if b1 & 0x20 != 0 { b |=  BTN_OPTIONS; }
+            if b1 & 0x40 != 0 { b |=  BTN_L3; }
+            if b1 & 0x80 != 0 { b |=  BTN_R3; }
+            if b2 & 0x01 != 0 { b |=  BTN_PS; }
+            if b2 & 0x02 != 0 { b |=  BTN_TOUCHPAD; }
+            if b2 & 0x04 != 0 { b |=  BTN_MUTE; }
+            
+            b
+        };
+
+        let gyro = [
+            i16::from_le_bytes([d[15], d[16]]),
+            i16::from_le_bytes([d[17], d[18]]),
+            i16::from_le_bytes([d[19], d[20]]),
+        ];
+        
+        let accel = [
+            i16::from_le_bytes([d[21], d[22]]),
+            i16::from_le_bytes([d[23], d[24]]),
+            i16::from_le_bytes([d[25], d[26]]),
+        ];
+
+        let sensor_timestamp = u32::from_le_bytes([d[27], d[28], d[29], d[30]]);
+
+        let mut touch_points = [TouchPoint::default(), TouchPoint::default()];
+        let mut touch_count: u8 = 0;
+
+        for i in 0..2 {
+            let base = 32 + i * 4;
+            let b0 = d[base];
+            let active = (b0 & 0x80) == 0;
+
+            if active {
+                let x = (d[base + 1] as u16) | (((d[base + 2]) as u16) << 8);
+                let y = ((d[base + 2] >> 4) as u16) | ((d[base + 3] as u16) << 4);
+
+                touch_points[i] = TouchPoint {
+                    active: true,
+                    id: b0 & 0x7f,
+                    x: x.min(TOUCHPAD_MAX_X - 1),
+                    y: y.min(TOUCHPAD_MAX_Y - 1)
+                };
+
+                touch_count += 1;
+            }
+        }
+        
+        Ok(ControllerState {
+            left_x, left_y, right_x, right_y,
+            l2, r2,
+            buttons, dpad,
+            gyro, accel, sensor_timestamp,
+            touch_count, touch_points
+        })
+    }
+
     pub fn get_firmware_info(&self) -> Result<(u16, String, String)> {
-        let mut buf = vec![0u8; 64];
+        let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
         buf[0] = 0x20;
 
         let size = self.device.get_feature_report(&mut buf)
@@ -447,11 +550,11 @@ impl DualSense {
             );
         }
 
-        let mut buf = vec![0u8; 64];
+        let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
         buf[0] = 0x20;
         
         match self.device.get_feature_report(&mut buf) {
-            Ok(size) if size == 64 => {
+            Ok(DS_INPUT_REPORT_USB_SIZE) => {
                 let current_version = u16::from_le_bytes([buf[44], buf[45]]);
                 println!("Updating firmware for {} from 0x{:04X} to 0x{:04X}",
                     if self.product_id == DS_PID { "DualSense" } else { "DualSense Edge" },
@@ -466,6 +569,9 @@ impl DualSense {
     }
 
     fn send_firmware_feature(&self, buf: &[u8]) -> Result<()> {
+        if self.is_bt {
+            bail!("Please connect to USB.");
+        }
         self.device.send_feature_report(buf)
             .map_err(|e| anyhow!("Failed to send firmware data: {}.
                     Controller may have disconnected.", e))
@@ -477,8 +583,8 @@ impl DualSense {
             if start.elapsed() > Duration::from_secs(30) {
                 bail!("Firmware update timeout");
             }
-            sleep(Duration::from_millis(10));
-            let mut buf = vec![0u8; 64];
+
+            let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
             buf[0] = DS_FEATURE_REPORT_FW_STATUS;
             
             self.device.get_feature_report(&mut buf)?;
@@ -492,7 +598,10 @@ impl DualSense {
 
             match status {
                 0x00 => return Ok(()),
-                0x01 | 0x10 => continue,
+                0x01 | 0x10 => {
+                    sleep(Duration::from_millis(10));
+                    continue
+                },
                 0x02 => bail!("Err 0x{:02x}: Invalid firmware size", status),
                 0x03 => {
                     if expected == 0x01 {
@@ -519,7 +628,7 @@ impl DualSense {
             let remaining = 256 - offset;
             let chunk_size = remaining.min(57);
 
-            let mut buf = vec![0u8; 64];
+            let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
             buf[0] = DS_FEATURE_REPORT_FW;
             buf[2] = chunk_size as u8;
             buf[3..3+chunk_size].copy_from_slice(&firmware_data[offset..offset+chunk_size]);
@@ -531,7 +640,7 @@ impl DualSense {
             }
         }
 
-        self.firmware_wait_status(0x00)
+        self.firmware_wait_status(0x0)
     }
 
     fn firmware_write(
@@ -553,7 +662,7 @@ impl DualSense {
 
                 let actual_size = (total_size - global_offset).min(packet_size);
 
-                let mut buf = vec![0u8; 64];
+                let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
                 buf[0] = DS_FEATURE_REPORT_FW;
                 buf[1] = 0x01;
                 buf[2] = actual_size as u8;
@@ -575,7 +684,7 @@ impl DualSense {
     }
 
     fn firmware_verify(&mut self) -> Result<()> {
-        let mut buf = vec![0u8; 64];
+        let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
         buf[0] = DS_FEATURE_REPORT_FW;
         buf[1] = 0x02;
 
@@ -584,7 +693,7 @@ impl DualSense {
     }
 
     fn firmware_finale(&mut self) -> Result<()> {
-        let mut buf = vec![0u8; 64];
+        let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
         buf[0] = DS_FEATURE_REPORT_FW;
         buf[1] = 0x03;
 

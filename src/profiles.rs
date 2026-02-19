@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, path::PathBuf};
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::common::*;
+use crate::{common::*, inputs::Button};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Profile {

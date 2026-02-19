@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read};
 
 use anyhow::{anyhow, bail, Result};
 use serde::Deserialize;
@@ -57,8 +57,6 @@ impl FirmwareDownloader {
             bail!("Donwload failed with status: {}", response.status());
         }
 
-        println!("{:?}", url);
-
         let total_size = response.content_length().unwrap_or(FIRMWARE_SIZE as u64);
 
         let mut fw_data = Vec::with_capacity(FIRMWARE_SIZE);
@@ -84,7 +82,7 @@ impl FirmwareDownloader {
         }
 
         progress_callback(100);
-
+        
         Ok(fw_data)
     }
 
