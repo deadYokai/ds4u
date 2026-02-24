@@ -3,7 +3,7 @@ use std::{env, io::{BufRead, BufReader, Write}, os::unix::net::UnixStream, path:
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{common::MicLedState, dualsense::BatteryInfo, inputs::ControllerState};
+use crate::{common::MicLedState, dualsense::BatteryInfo, inputs::ControllerState, transform::InputTransform};
 
 pub fn socket_path() -> PathBuf {
     dirs::runtime_dir()
@@ -29,7 +29,9 @@ pub enum DaemonCommand {
     SetVibration { rumble: u8, trigger: u8 },
     SetSpeaker { mode: String },
     SetVolume { volume: u8 },
-    SetUpdateMode { active: bool }
+    SetUpdateMode { active: bool },
+    SetInputTransform { transform: InputTransform },
+    ClearInputTransform
 }
 
 #[derive(Serialize, Deserialize)]
@@ -210,6 +212,22 @@ impl IpcClient {
     }
     pub fn set_update_mode(&mut self, active: bool) -> Result<()> {
         self.request(DaemonCommand::SetUpdateMode { active }).map(|_| ())
+    }
+
+    pub fn set_input_transform(&mut self, transform: InputTransform) -> Result<()> {
+        match self.request(DaemonCommand::SetInputTransform { transform })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn clear_input_transform(&mut self) -> Result<()> {
+        match self.request(DaemonCommand::ClearInputTransform)? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
     }
 }
 

@@ -1,17 +1,12 @@
 use std::{
-    fs,
-    io::{Write, BufReader, BufRead},
-    os::unix::net::{UnixListener, UnixStream},
-    sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex},
-    thread::{self, sleep},
-    time::Duration
+    fs, io::{BufRead, BufReader, Write}, os::unix::net::{UnixListener, UnixStream}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread::{self, sleep}, time::Duration
 };
 
 use hidapi::HidApi;
 
 use crate::{
-    dualsense::{DualSense},
-    ipc::{socket_path, DaemonCommand, DaemonResponse, IpcClient},
+    dualsense::DualSense,
+    ipc::{socket_path, DaemonCommand, DaemonResponse, IpcClient}, transform::InputTransform,
 };
 
 const TAG: &str = "[ds4u daemon]";
@@ -49,14 +44,16 @@ impl DaemonManager {
 
 struct DaemonState {
     device: Mutex<Option<DualSense>>,
-    update_in_progress: AtomicBool
+    update_in_progress: AtomicBool,
+    active_transform: Mutex<InputTransform>
 }
 
 impl DaemonState {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             device: Mutex::new(None),
-            update_in_progress: AtomicBool::new(false)
+            update_in_progress: AtomicBool::new(false),
+            active_transform: Mutex::new(InputTransform::default())
         })
     }
 }
@@ -159,6 +156,16 @@ fn handle_client(stream: UnixStream, state: Arc<DaemonState>) {
                 send(&mut writer, DaemonResponse::Ok);
             }
 
+            DaemonCommand::SetInputTransform { transform } => {
+                *state.active_transform.lock().unwrap() = transform;
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
+            DaemonCommand::ClearInputTransform => {
+                *state.active_transform.lock().unwrap() = InputTransform::default();
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
             cmd => {
                 if state.update_in_progress.load(Ordering::Relaxed) {
                     send(&mut writer, DaemonResponse::Error { 
@@ -167,11 +174,12 @@ fn handle_client(stream: UnixStream, state: Arc<DaemonState>) {
                     continue;
                 }
 
+                let transform = state.active_transform.lock().unwrap().clone();
                 let mut dev = state.device.lock().unwrap();
                 match dev.as_mut() {
                     None => send(&mut writer, DaemonResponse::NoDevice),
                     Some(ds) => {
-                        let resp = dispatch(ds, cmd);
+                        let resp = dispatch(ds, cmd, &transform);
                         let failed = matches!(&resp, DaemonResponse::Error { .. });
                         send(&mut writer, resp);
                         if failed {
@@ -185,7 +193,9 @@ fn handle_client(stream: UnixStream, state: Arc<DaemonState>) {
     }
 }
 
-fn dispatch(ds: &mut DualSense, cmd: DaemonCommand) -> DaemonResponse {
+fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform)
+    -> DaemonResponse
+{
     macro_rules! ok_or_err {
         ($e:expr) => {
             match $e {
@@ -204,7 +214,10 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand) -> DaemonResponse {
         },
 
         DaemonCommand::GetInputState => match ds.get_input_state() {
-            Ok(s)  => DaemonResponse::InputState(s),
+            Ok(mut s) => {
+                transform.apply(&mut s);
+                DaemonResponse::InputState(s)
+            }
             Err(e) => DaemonResponse::Error { message: e.to_string() },
         },
 
@@ -251,7 +264,9 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand) -> DaemonResponse {
         DaemonCommand::SetVolume { volume } =>
             ok_or_err!(ds.set_volume(volume)),
 
-        DaemonCommand::SetUpdateMode { .. } => unreachable!()
+        DaemonCommand::SetUpdateMode { .. } => unreachable!(),
+        DaemonCommand::SetInputTransform { .. } => unreachable!(),
+        DaemonCommand::ClearInputTransform => unreachable!()
     }
 }
 

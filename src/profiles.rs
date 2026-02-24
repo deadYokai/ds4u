@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, path::PathBuf};
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{common::*, inputs::Button};
+use crate::{common::*, inputs::Button, transform::{InputTransform, TriggerDeadband}};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Profile {
@@ -20,9 +20,25 @@ pub struct Profile {
     pub haptic_intensity: u8,
     pub gyro_sensetivity: f32,
     pub touchpad_enabled: bool,
-    pub button_remapping: HashMap<Button, Button>
+    pub button_remapping: HashMap<Button, Button>,
+    pub stick_left_deadzone: f32,
+    pub stick_right_deadzone: f32
 }
 
+impl Profile { 
+    pub fn to_input_transform(&self) -> InputTransform {
+        InputTransform {
+            left_curve:       self.stick_left_curve.clone(),
+            right_curve:      self.stick_right_curve.clone(),
+            left_deadzone:    self.stick_left_deadzone,
+            right_deadzone:   self.stick_right_deadzone,
+            trigger_left:     TriggerDeadband::default(),
+            trigger_right:    TriggerDeadband::default(),
+            button_remap:     self.button_remapping.clone(),
+            disabled_buttons: std::collections::HashSet::new(),
+        }
+    }
+}
 
 pub struct ProfileManager {
     profiles_dir: PathBuf
@@ -141,7 +157,9 @@ impl Default for Profile {
             haptic_intensity: 0,
             gyro_sensetivity: 1.0,
             touchpad_enabled: true,
-            button_remapping: HashMap::new()
+            button_remapping: HashMap::new(),
+            stick_left_deadzone: 0.0,
+            stick_right_deadzone: 0.0,
         }
     }
 }

@@ -5,7 +5,7 @@ use egui::{include_image, pos2, vec2, Align2, Button, CentralPanel, Color32, Con
 use hidapi::HidApi;
 
 use crate::{
-    common::*, daemon::DaemonManager, dualsense::{BatteryInfo, DualSense}, firmware::{get_product_name, FirmwareDownloader}, inputs::*, ipc::{socket_path, IpcClient}, profiles::{Profile, ProfileManager}
+    common::*, daemon::DaemonManager, dualsense::{BatteryInfo, DualSense}, firmware::{get_product_name, FirmwareDownloader}, inputs::*, ipc::{socket_path, IpcClient}, profiles::{Profile, ProfileManager}, transform::InputTransform
 };
 
 mod dualsense;
@@ -15,6 +15,7 @@ mod daemon;
 mod common;
 mod inputs;
 mod ipc;
+mod transform;
 
 fn main() -> Result<(), eframe::Error> {
     let args: Vec<String> = env::args().collect();
@@ -154,6 +155,7 @@ struct DS4UApp {
     input_poll_stop: Option<Arc<sync::atomic::AtomicBool>>,
 
     pending_connect_since: Option<Instant>,
+    input_transform: InputTransform
 }
 
 impl DS4UApp {
@@ -243,7 +245,8 @@ impl DS4UApp {
             input_polling: false,
             input_poll_stop: None,
 
-            pending_connect_since: None
+            pending_connect_since: None,
+            input_transform: InputTransform::default()
         };
 
         app.check_for_controller();
@@ -362,8 +365,10 @@ impl DS4UApp {
     fn disconnect_controller(&mut self) {
         self.controller = None;
         self.battery_info = None;
+        self.ipc = None;
         self.controller_is_bt = None;
         self.controller_product_id = None;
+        self.controller_serial = None;
         self.status_message = "Controller disconnected".to_string();
     }
 
@@ -766,6 +771,23 @@ impl DS4UApp {
                 Err(e) => { let _ = tx.send(ProgressUpdate::Error(e.to_string())); }
             }
         });
+    }
+
+    fn apply_input_transform(&mut self) {
+        let mut t = self.current_profile
+            .as_ref()
+            .map(|p| p.to_input_transform())
+            .unwrap_or_default();
+        t.left_curve     = self.sticks.left_curve.clone();
+        t.right_curve    = self.sticks.right_curve.clone();
+        t.left_deadzone  = self.sticks.left_deadzone;
+        t.right_deadzone = self.sticks.right_deadzone;
+
+        self.input_transform = t.clone();
+
+        if let Some(ref ipc) = self.ipc.clone() {
+            let _ = ipc.lock().unwrap().set_input_transform(t);
+        }
     }
 
     //
@@ -1390,7 +1412,7 @@ Controller will disconnect when complete."
     }
 
     fn render_sticks_section(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Stick Sensitivity (demo only)").size(28.0));
+        ui.heading(RichText::new("Stick Sensitivity").size(28.0));
 
         ui.add_space(10.0);
 
@@ -1448,7 +1470,11 @@ Controller will disconnect when complete."
 
             cols[0].add_space(15.0);
             cols[0].label("Deadzone");
-            cols[0].add(Slider::new(&mut self.sticks.left_deadzone, 0.0..=0.3));
+            if cols[0].add(Slider::new(&mut self.sticks.left_deadzone, 0.0..=0.3))
+                .changed()
+            {
+                self.apply_input_transform();
+            }
             Self::render_stick_visual(&mut cols[0], self.sticks.left_deadzone);
 
             cols[1].label(RichText::new("Right Stick").size(16.0).strong());
@@ -1498,7 +1524,11 @@ Controller will disconnect when complete."
 
             cols[1].add_space(15.0);
             cols[1].label("Deadzone");
-            cols[1].add(Slider::new(&mut self.sticks.right_deadzone, 0.0..=0.3));
+            if cols[1].add(Slider::new(&mut self.sticks.right_deadzone, 0.0..=0.3))
+                .changed()
+            {
+                self.apply_input_transform();
+            }
             Self::render_stick_visual(&mut cols[1], self.sticks.right_deadzone);
         });
     }
@@ -2058,7 +2088,10 @@ impl App for DS4UApp {
                 }
 
                 if let Some(rx) = &self.input_state_rx {
-                    while let Ok(state) = rx.try_recv() {
+                    while let Ok(mut state) = rx.try_recv() {
+                        if self.ipc.is_none() {
+                            self.input_transform.apply(&mut state);
+                        }
                         self.controller_state = Some(state);
                     }
                 }
