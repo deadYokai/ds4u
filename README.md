@@ -10,9 +10,9 @@ GUI tool for configuring DualSense controller.
 Bluetooth is buggy, so i recommend USB for now
 
 ## Features (W.I.P.)
+- Daemon
 - Changing LED
 - Firmware update
-- Daemon
 - Live buttons preview
 
 ## TODO:

@@ -3,6 +3,7 @@ use std::{sync::{atomic::{AtomicBool, Ordering}, Arc}, thread::sleep, time::{Dur
 use anyhow::{anyhow, bail, Context, Result};
 use hidapi::{HidApi, HidDevice};
 use crc::{Crc, CRC_32_ISO_HDLC};
+use serde::{Deserialize, Serialize};
 
 use crate::{common::*, inputs::*};
 
@@ -77,7 +78,7 @@ struct DualSenseInputReport {
     reserved2: u8
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct BatteryInfo {
     pub capacity: u8,
     pub status: String
@@ -760,13 +761,6 @@ Please connect your controller via USB or Bluetooth.")
 
         self.send_firmware_feature(&buf)
     }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum MicLedState {
-    Off,
-    On,
-    Pulse
 }
 
 pub fn list_devices(api: &HidApi) -> Vec<String> {

@@ -5,6 +5,13 @@ pub const DS_PID: u16 = 0x0ce6;
 pub const DSE_PID: u16 = 0x0df2;
 pub const FIRMWARE_SIZE: usize = 950272;
 
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum MicLedState {
+    Off,
+    On,
+    Pulse
+}
+
 #[derive(Deserialize, Serialize, PartialEq, Clone)]
 pub enum TriggerMode {
     Off,

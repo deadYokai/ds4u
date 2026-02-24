@@ -1,138 +1,257 @@
-use std::{sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread::{self, sleep}, time::Duration};
+use std::{
+    fs,
+    io::{Write, BufReader, BufRead},
+    os::unix::net::{UnixListener, UnixStream},
+    sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex},
+    thread::{self, sleep},
+    time::Duration
+};
 
-use anyhow::Result;
 use hidapi::HidApi;
 
 use crate::{
-    dualsense::{self, DualSense},
-    profiles::{Profile, ProfileManager},
-    common::TriggerMode
+    dualsense::{DualSense},
+    ipc::{socket_path, DaemonCommand, DaemonResponse, IpcClient},
 };
 
+const TAG: &str = "[ds4u daemon]";
+
 pub struct DaemonManager {
-    running: Arc<Mutex<bool>>,
-    profile_manager: ProfileManager,
-    auto_apply_enabled: Arc<Mutex<bool>>,
-    current_profile: Arc<Mutex<Option<String>>>,
-    update_in_progress: Arc<AtomicBool>
+    client: Option<Arc<Mutex<IpcClient>>>,
 }
 
 impl DaemonManager {
     pub fn new() -> Self {
-        Self {
-            running: Arc::new(Mutex::new(false)),
-            profile_manager: ProfileManager::new(),
-            auto_apply_enabled: Arc::new(Mutex::new(false)),
-            current_profile: Arc::new(Mutex::new(None)),
-            update_in_progress: Arc::new(AtomicBool::new(false))
+        let path = socket_path();
+        let client = IpcClient::try_connect(&path)
+            .map(|c| Arc::new(Mutex::new(c)));
+        Self { client }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.client.is_some()
+    }
+
+    pub fn connect_new_client(&self) -> Option<Arc<Mutex<IpcClient>>> {
+        let path = socket_path();
+        IpcClient::try_connect(&path).map(|c| Arc::new(Mutex::new(c)))
+    }
+
+    pub fn client(&self) -> Option<Arc<Mutex<IpcClient>>> {
+        self.client.clone()
+    }
+    pub fn set_update_in_progress(&mut self, active: bool) {
+        if let Some(ref arc) = self.client {
+            let _ = arc.lock().unwrap().set_update_mode(active);
         }
-    }
-
-    pub fn start(&mut self) -> Result<()> {
-        let mut running = self.running.lock().unwrap();
-
-        if *running {
-            return Ok(());
-        }
-
-        *running = true;
-        drop(running);
-
-        let running_clone = Arc::clone(&self.running);
-        let auto_apply = Arc::clone(&self.auto_apply_enabled);
-        let current_profile = Arc::clone(&self.current_profile);
-        let profile_manager = self.profile_manager.clone();
-        let update_in_progres = Arc::clone(&self.update_in_progress);
-
-        thread::spawn(move || {
-            daemon_loop(
-                running_clone,
-                auto_apply,
-                current_profile,
-                profile_manager,
-                update_in_progres
-            );
-        });
-
-        Ok(())
-    }
-
-    pub fn stop(&mut self) {
-        let mut running = self.running.lock().unwrap();
-        *running = false;
-    }
-
-    pub fn is_running(&self) -> bool {
-        *self.running.lock().unwrap()
-    }
-
-    pub fn set_auto_apply(&mut self, enabled: bool) {
-        let mut auto_apply = self.auto_apply_enabled.lock().unwrap();
-        *auto_apply = enabled;
-    }
-
-    pub fn set_auto_profile(&mut self, profile_name: Option<String>) {
-        let mut current = self.current_profile.lock().unwrap();
-        *current = profile_name;
-    }
-
-    pub fn set_update_in_progress(&self, active: bool) {
-        self.update_in_progress.store(active, Ordering::SeqCst);
     }
 }
 
-fn daemon_loop(
-    running: Arc<Mutex<bool>>,
-    auto_apply_enabled: Arc<Mutex<bool>>,
-    current_profile: Arc<Mutex<Option<String>>>,
-    profile_manager: ProfileManager,
-    update_in_progress: Arc<AtomicBool>
-) {
-    let mut last_connected = false;
+struct DaemonState {
+    device: Mutex<Option<DualSense>>,
+    update_in_progress: AtomicBool
+}
 
-    while *running.lock().unwrap() {
-        if update_in_progress.load(Ordering::Relaxed) {
-            sleep(Duration::from_millis(500));
-            continue;
-        }
+impl DaemonState {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            device: Mutex::new(None),
+            update_in_progress: AtomicBool::new(false)
+        })
+    }
+}
 
-        if let Ok(api) = HidApi::new() {
-            let connected = !dualsense::list_devices(&api).is_empty();
+pub fn run_daemon() {
+    let path = socket_path();
 
-            if connected && !last_connected 
-                && *auto_apply_enabled.lock().unwrap() 
-                && let Some(profile_name) = &*current_profile.lock().unwrap() 
-                && let Ok(profile) = profile_manager.load_profile(profile_name) 
-                && !update_in_progress.load(Ordering::Relaxed)
-            {
-                        let _ = apply_profile_to_controller(&api, &profile);
-                        println!("Applied profile: {}", profile_name);
+    if path.exists() {
+        let _ = fs::remove_file(&path);
+    }
+    
+    let listener = UnixListener::bind(&path)
+        .unwrap_or_else(|e| panic!("Cannot bind {}: {}", path.display(), e));
+
+    println!("{} listening on {}", TAG, path.display());
+
+    let state = DaemonState::new();
+
+    {
+        let s = Arc::clone(&state);
+        thread::spawn(move || device_connection_loop(s));
+    }
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(s) => {
+                let state = Arc::clone(&state);
+                thread::spawn(move || handle_client(s, state));
             }
-
-            last_connected = connected;
+            Err(e) => eprintln!("{} accept error: {}", TAG, e)
         }
+    }
 
+}
+
+fn device_connection_loop(state: Arc<DaemonState>) {
+    loop {
+        if !state.update_in_progress.load(Ordering::Relaxed) {
+            let mut dev = state.device.lock().unwrap();
+            if dev.is_none()
+                && let Ok(api) = HidApi::new()
+            {
+                match DualSense::new(&api, None) {
+                    Ok(ds) => {
+                        println!("{} controller connected: {}", TAG, ds.serial());
+                        *dev = Some(ds)
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
         sleep(Duration::from_secs(2));
     }
 }
 
-fn apply_profile_to_controller(api: &HidApi, profile: &Profile) -> Result<()> {
-    if let Ok(mut controller) = DualSense::new(api, None) {
-        let _ = controller.set_lightbar(
-            (profile.lightbar_r * 255.0) as u8,
-            (profile.lightbar_g * 255.0) as u8,
-            (profile.lightbar_b * 255.0) as u8,
-            profile.lightbar_brightness as u8,
-        );
+fn handle_client(stream: UnixStream, state: Arc<DaemonState>) {
+    let write_half = match stream.try_clone() {
+        Ok(s) => s,
+        Err(_) => return
+    };
 
-        let _ = controller.set_player_leds(profile.player_leds);
+    let mut reader = BufReader::new(stream);
+    let mut writer = write_half;
 
-        let _ = controller.set_mic(profile.mic_enabled);
+    let send = |w: &mut UnixStream, resp: DaemonResponse| {
+        if let Ok(mut line) = serde_json::to_string(&resp) {
+            line.push('\n');
+            let _ = w.write_all(line.as_bytes());
+        }
+    };
 
-        if profile.trigger_mode == TriggerMode::Off {
-            let _ = controller.set_trigger_off();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+
+        let cmd: DaemonCommand = match serde_json::from_str(line.trim()) {
+            Ok(c) => c,
+            Err(e) => {
+                send(&mut writer, DaemonResponse::Error { message: e.to_string() });
+                continue;
+            }
+        };
+
+        match cmd {
+            DaemonCommand::Ping => { send(&mut writer, DaemonResponse::Pong); }
+
+            DaemonCommand::SetUpdateMode { active } => {
+                if active {
+                    state.update_in_progress.store(true, Ordering::SeqCst);
+                    *state.device.lock().unwrap() = None;
+                    println!("{} device released for firmware update", TAG);
+                } else {
+                    state.update_in_progress.store(false, Ordering::SeqCst);
+                    println!("{} firmware update done, device will reconnect", TAG);
+                }
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
+            cmd => {
+                if state.update_in_progress.load(Ordering::Relaxed) {
+                    send(&mut writer, DaemonResponse::Error { 
+                        message: "Firmware update in progress".to_string()
+                    });
+                    continue;
+                }
+
+                let mut dev = state.device.lock().unwrap();
+                match dev.as_mut() {
+                    None => send(&mut writer, DaemonResponse::NoDevice),
+                    Some(ds) => {
+                        let resp = dispatch(ds, cmd);
+                        let failed = matches!(&resp, DaemonResponse::Error { .. });
+                        send(&mut writer, resp);
+                        if failed {
+                            println!("{} device error - dropping handle", TAG);
+                            *dev = None;
+                        }
+                    }
+                }
+            }
         }
     }
-
-    Ok(())
 }
+
+fn dispatch(ds: &mut DualSense, cmd: DaemonCommand) -> DaemonResponse {
+    macro_rules! ok_or_err {
+        ($e:expr) => {
+            match $e {
+                Ok(_)  => DaemonResponse::Ok,
+                Err(e) => DaemonResponse::Error { message: e.to_string() },
+            }
+        };
+    }
+
+    match cmd {
+        DaemonCommand::Ping => DaemonResponse::Pong,
+
+        DaemonCommand::GetBattery => match ds.get_battery() {
+            Ok(b)  => DaemonResponse::Battery(b),
+            Err(e) => DaemonResponse::Error { message: e.to_string() }
+        },
+
+        DaemonCommand::GetInputState => match ds.get_input_state() {
+            Ok(s)  => DaemonResponse::InputState(s),
+            Err(e) => DaemonResponse::Error { message: e.to_string() },
+        },
+
+        DaemonCommand::GetFirmwareInfo => match ds.get_firmware_info() {
+            Ok((v, d, t)) => DaemonResponse::FirmwareInfo {
+                version: v, build_date: d, build_time: t,
+            },
+            Err(e) => DaemonResponse::Error { message: e.to_string() },
+        },
+
+        DaemonCommand::GetControllerInfo => DaemonResponse::ControllerInfo {
+            serial: ds.serial().to_string(),
+            product_id: ds.product_id(),
+            is_bt: ds.is_bluetooth()
+        },
+
+        DaemonCommand::SetLightbar { r, g, b, brightness } =>
+            ok_or_err!(ds.set_lightbar(r, g, b, brightness)),
+
+        DaemonCommand::SetLightbarEnabled { enabled } =>
+            ok_or_err!(ds.set_lightbar_enabled(enabled)),
+
+        DaemonCommand::SetPlayerLeds { leds } =>
+            ok_or_err!(ds.set_player_leds(leds)),
+
+        DaemonCommand::SetMic { enabled } =>
+            ok_or_err!(ds.set_mic(enabled)),
+
+        DaemonCommand::SetMicLed { state } =>
+            ok_or_err!(ds.set_mic_led(state)),
+
+        DaemonCommand::SetTriggerOff =>
+            ok_or_err!(ds.set_trigger_off()),
+
+        DaemonCommand::SetTriggerEffect { right, left, effect_type, params } =>
+            ok_or_err!(ds.set_trigger_effect(left, right, effect_type, &params)),
+
+        DaemonCommand::SetVibration { rumble, trigger } =>
+            ok_or_err!(ds.set_vibration(rumble, trigger)),
+
+        DaemonCommand::SetSpeaker { mode } =>
+            ok_or_err!(ds.set_speaker(&mode)),
+
+        DaemonCommand::SetVolume { volume } =>
+            ok_or_err!(ds.set_volume(volume)),
+
+        DaemonCommand::SetUpdateMode { .. } => unreachable!()
+    }
+}
+
