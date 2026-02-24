@@ -14,16 +14,19 @@ Bluetooth is buggy, so i recommend USB for now
 - Firmware update
 - Daemon
 - Live buttons preview
-- Buttons remapping (needs more research)
 
 ## TODO:
 - Refactor
 - More comfy ui
 - Themes support
 - Controller ui navigation
+- Haptics/Gyro etc
+- DualSense Edge controller settings (experimental, because I don't have it)
+- Buttons remapping (via daemon or native for DualSense Edge)
 
-## Not planning:
-- DualSense Edge controller settings (because I don't have it)
+
+## Possible features
+- DualShock support
 
 
 ## Support links:
