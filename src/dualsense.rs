@@ -148,7 +148,16 @@ Please connect your controller via USB or Bluetooth.")
         }
     }
 
+    #[inline]
+    fn is_updating(&self) -> bool {
+        self.update_mode.load(Ordering::Relaxed)
+    }
+
     pub fn get_input_state(&mut self) -> Result<ControllerState> {
+        if self.is_updating() {
+            bail!("");
+        }
+
         let mut buf = vec![0u8; DS_INPUT_REPORT_BT_SIZE];
         let size = self.device.read_timeout(&mut buf, 1000)?;
 
@@ -288,6 +297,10 @@ Please connect your controller via USB or Bluetooth.")
     }
 
     fn send_output_report(&mut self, data: &mut [u8]) -> Result<()> {
+        if self.is_updating() {
+            return Ok(());
+        }
+
         if self.is_bt {
             let len = data.len();
             let crc = self.calc_crc32(data);
@@ -479,6 +492,10 @@ Please connect your controller via USB or Bluetooth.")
     }
 
     pub fn get_battery(&mut self) -> Result<BatteryInfo> {
+        if self.is_updating() {
+            bail!("");
+        }
+
         let mut buf = vec![0u8; DS_INPUT_REPORT_BT_SIZE];
         let size = self.device.read_timeout(&mut buf, 1000)?;
 

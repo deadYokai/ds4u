@@ -1,4 +1,4 @@
-use std::{sync::{Arc, Mutex}, thread::{self, sleep}, time::Duration};
+use std::{sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread::{self, sleep}, time::Duration};
 
 use anyhow::Result;
 use hidapi::HidApi;
@@ -13,7 +13,8 @@ pub struct DaemonManager {
     running: Arc<Mutex<bool>>,
     profile_manager: ProfileManager,
     auto_apply_enabled: Arc<Mutex<bool>>,
-    current_profile: Arc<Mutex<Option<String>>>
+    current_profile: Arc<Mutex<Option<String>>>,
+    update_in_progress: Arc<AtomicBool>
 }
 
 impl DaemonManager {
@@ -22,7 +23,8 @@ impl DaemonManager {
             running: Arc::new(Mutex::new(false)),
             profile_manager: ProfileManager::new(),
             auto_apply_enabled: Arc::new(Mutex::new(false)),
-            current_profile: Arc::new(Mutex::new(None))
+            current_profile: Arc::new(Mutex::new(None)),
+            update_in_progress: Arc::new(AtomicBool::new(false))
         }
     }
 
@@ -40,9 +42,16 @@ impl DaemonManager {
         let auto_apply = Arc::clone(&self.auto_apply_enabled);
         let current_profile = Arc::clone(&self.current_profile);
         let profile_manager = self.profile_manager.clone();
+        let update_in_progres = Arc::clone(&self.update_in_progress);
 
         thread::spawn(move || {
-            daemon_loop(running_clone, auto_apply, current_profile, profile_manager);
+            daemon_loop(
+                running_clone,
+                auto_apply,
+                current_profile,
+                profile_manager,
+                update_in_progres
+            );
         });
 
         Ok(())
@@ -66,24 +75,36 @@ impl DaemonManager {
         let mut current = self.current_profile.lock().unwrap();
         *current = profile_name;
     }
+
+    pub fn set_update_in_progress(&self, active: bool) {
+        self.update_in_progress.store(active, Ordering::SeqCst);
+    }
 }
 
 fn daemon_loop(
     running: Arc<Mutex<bool>>,
     auto_apply_enabled: Arc<Mutex<bool>>,
     current_profile: Arc<Mutex<Option<String>>>,
-    profile_manager: ProfileManager
+    profile_manager: ProfileManager,
+    update_in_progress: Arc<AtomicBool>
 ) {
     let mut last_connected = false;
 
     while *running.lock().unwrap() {
+        if update_in_progress.load(Ordering::Relaxed) {
+            sleep(Duration::from_millis(500));
+            continue;
+        }
+
         if let Ok(api) = HidApi::new() {
             let connected = !dualsense::list_devices(&api).is_empty();
 
             if connected && !last_connected 
                 && *auto_apply_enabled.lock().unwrap() 
-                    && let Some(profile_name) = &*current_profile.lock().unwrap() 
-                        && let Ok(profile) = profile_manager.load_profile(profile_name) {
+                && let Some(profile_name) = &*current_profile.lock().unwrap() 
+                && let Ok(profile) = profile_manager.load_profile(profile_name) 
+                && !update_in_progress.load(Ordering::Relaxed)
+            {
                         let _ = apply_profile_to_controller(&api, &profile);
                         println!("Applied profile: {}", profile_name);
             }

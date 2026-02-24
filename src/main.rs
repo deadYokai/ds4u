@@ -314,21 +314,12 @@ impl DS4UApp {
 
     fn update_battery(&mut self) {
         self.last_battery_update = Instant::now();
-        let in_update_mode = self.update_mode_flag
-            .as_ref()
-            .map(|f| f.load(Ordering::Relaxed))
-            .unwrap_or(false);
 
-        if in_update_mode {
+        if self.firmware_updating {
             return;
         }
 
-        if self.update_mode_flag.is_some() {
-            self.update_mode_flag = None;
-        }
-
         let Some(controller) = &self.controller else { return };
-
         let Ok(mut ctrl) = controller.try_lock() else { return };
 
         if let Ok(info) = ctrl.get_battery() {
@@ -350,6 +341,7 @@ impl DS4UApp {
                         self.status_message = "Firmware update completed".to_string();
                         self.firmware_progress = 100;
                         self.update_mode_flag = None;
+                        self.daemon_manager.set_update_in_progress(false);
                     }
                     ProgressUpdate::Error(e) => {
                         self.firmware_updating = false;
@@ -357,6 +349,7 @@ impl DS4UApp {
                         self.error_message = e;
                         self.firmware_progress = 0;
                         self.update_mode_flag = None;
+                        self.daemon_manager.set_update_in_progress(false);
                     }
                     ProgressUpdate::LatestVersion(v) => {
                         self.firmware_latest_version = Some(v);
@@ -460,12 +453,7 @@ impl DS4UApp {
     }
 
     fn check_controller_connection(&mut self) {
-        let in_update_mode = self.update_mode_flag
-            .as_ref()
-            .map(|f| f.load(Ordering::Relaxed))
-            .unwrap_or(false);
-
-        if in_update_mode {
+        if self.firmware_updating {
             return;
         }
 
@@ -562,8 +550,7 @@ impl DS4UApp {
         let pid = self.controller_product_id
             .unwrap_or_else(|| ctrl.lock().unwrap().product_id());
 
-        let update_mode_flag = ctrl.lock().unwrap().update_mode_flag();
-        self.update_mode_flag = Some(Arc::clone(&update_mode_flag));
+        self.daemon_manager.set_update_in_progress(true);
 
         let ctrl = Arc::clone(ctrl);
 
@@ -634,8 +621,7 @@ impl DS4UApp {
             return;
         };
 
-        let update_mode_flag = ctrl.lock().unwrap().update_mode_flag();
-        self.update_mode_flag = Some(Arc::clone(&update_mode_flag));
+        self.daemon_manager.set_update_in_progress(true);
 
         let ctrl = Arc::clone(ctrl);
 
