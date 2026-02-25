@@ -238,7 +238,7 @@ Please connect your controller via USB or Bluetooth.")
             let active = (b0 & 0x80) == 0;
 
             if active {
-                let x = (d[base + 1] as u16) | (((d[base + 2]) as u16) << 8);
+                let x = (d[base + 1] as u16) | (((d[base + 2] & 0x0f) as u16) << 8);
                 let y = ((d[base + 2] >> 4) as u16) | ((d[base + 3] as u16) << 4);
 
                 touch_points[i] = TouchPoint {
@@ -350,6 +350,7 @@ Please connect your controller via USB or Bluetooth.")
         self.send_output_report(&mut buf)
     }
 
+    // TODO: change to reset? needed more research
     pub fn set_lightbar_enabled(&mut self, enabled: bool) -> Result<()> {
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
