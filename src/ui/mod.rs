@@ -14,6 +14,7 @@ pub mod lightbar;
 pub mod sidebar;
 pub mod sticks;
 pub mod triggers;
+pub mod settings;
 
 impl DS4UApp {
     fn render_main(&mut self, ui: &mut Ui) {
@@ -28,6 +29,7 @@ impl DS4UApp {
                 Section::Audio      => self.render_audio_settings(ui),
                 Section::Advanced   => self.render_advanced(ui),
                 Section::Inputs     => self.render_inputs_section(ui),
+                Section::Settings   => self.render_settings_section(ui)
             }
 
             ui.add_space(30.0);
@@ -112,7 +114,7 @@ impl App for DS4UApp {
 
         self.check_firmware_progress();
 
-        apply_style(ctx);
+        apply_style(ctx, &self.theme);
 
         SidePanel::left("sidebar")
             .exact_width(280.0)

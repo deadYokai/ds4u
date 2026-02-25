@@ -14,6 +14,8 @@ mod transform;
 mod app;
 mod style;
 mod ui;
+mod theme;
+mod settings;
 
 fn main() -> Result<(), eframe::Error> {
     let args: Vec<String> = env::args().collect();

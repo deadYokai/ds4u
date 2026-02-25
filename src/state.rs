@@ -11,7 +11,7 @@ pub(crate) enum ProgressUpdate {
 
 #[derive(PartialEq)]
 pub(crate) enum Section {
-    Lightbar, Triggers, Sticks, Haptics, Audio, Advanced, Inputs,
+    Lightbar, Triggers, Sticks, Haptics, Audio, Advanced, Inputs, Settings
 }
 
 pub(crate) struct LightbarState {

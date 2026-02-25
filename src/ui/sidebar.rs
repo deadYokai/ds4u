@@ -153,6 +153,7 @@ impl DS4UApp {
             self.render_nav_btn(ui, "Haptics", Section::Haptics);
             self.render_nav_btn(ui, "Audio", Section::Audio);
             self.render_nav_btn(ui, "Advanced", Section::Advanced);
+            self.render_nav_btn(ui, "Settings", Section::Settings);
         }
 
         ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {

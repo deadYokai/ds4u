@@ -6,18 +6,15 @@ use std::{
 use hidapi::HidApi;
 
 use crate::{
-    common::*,
-    daemon::DaemonManager,
-    dualsense::{self, DualSense, BatteryInfo},
-    firmware::FirmwareDownloader,
-    inputs::ControllerState,
-    ipc::{socket_path, IpcClient},
-    profiles::{Profile, ProfileManager},
-    transform::InputTransform,
-    state::*
+    common::*, daemon::DaemonManager, dualsense::{self, BatteryInfo, DualSense}, firmware::FirmwareDownloader, inputs::ControllerState, ipc::{socket_path, IpcClient}, profiles::{Profile, ProfileManager}, settings::{Settings, SettingsManager}, state::*, theme::{Theme, ThemeManager}, transform::InputTransform
 };
 
 pub(crate) struct DS4UApp {
+    pub(crate) settings: Settings,
+    pub(crate) settings_manager: SettingsManager,
+    pub(crate) theme: Theme,
+    pub(crate) theme_manager: ThemeManager,
+
     api: HidApi,
     pub(crate) controller: Option<Arc<Mutex<DualSense>>>,
 
@@ -81,7 +78,17 @@ impl DS4UApp {
     pub(crate) fn new() -> Self {
         let api = HidApi::new().unwrap();
 
+        let settings_manager = SettingsManager::new();
+        let settings = settings_manager.load();
+        let theme_manager = ThemeManager::new();
+        let theme = theme_manager.load_by_id(&settings.theme_id);
+
         let mut app = Self {
+            settings,
+            settings_manager,
+            theme,
+            theme_manager,
+
             api,
             controller: None,
             ipc: None,

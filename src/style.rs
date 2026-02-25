@@ -1,18 +1,23 @@
-use egui::{Context, Color32, CornerRadius, vec2};
+use egui::{Context, CornerRadius, vec2};
 
-pub fn apply_style(ctx: &Context) {
+use crate::theme::Theme;
+
+pub fn apply_style(ctx: &Context, theme: &Theme) {
     let mut style = (*ctx.style()).clone();
+    let c = &theme.colors;
 
-    style.visuals.dark_mode = true;
-    style.visuals.window_fill = Color32::from_rgb(12, 18, 28);
-    style.visuals.panel_fill = Color32::from_rgb(16, 24, 36);
-    style.visuals.extreme_bg_color = Color32::from_rgb(8, 12, 20);
+    style.visuals.dark_mode = theme.dark_mode;
+    style.visuals.window_fill = c.window_bg();
+    style.visuals.panel_fill = c.panel_bg();
+    style.visuals.extreme_bg_color = c.extreme_bg();
 
-    let accent_color = Color32::from_rgb(0, 122, 250);
-    style.visuals.selection.bg_fill = accent_color;
-    style.visuals.widgets.active.bg_fill = accent_color;
-    style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(40, 60, 90);
-    style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(30, 45, 70);
+    style.visuals.selection.bg_fill = c.accent();
+    style.visuals.widgets.active.bg_fill = c.accent();
+    style.visuals.widgets.hovered.bg_fill = c.widget_hovered();
+    style.visuals.widgets.inactive.bg_fill = c.widget_inactive();
+    style.visuals.widgets.noninteractive.bg_fill = c.widget_inactive();
+
+    style.visuals.override_text_color = Some(c.text());
 
     style.visuals.window_corner_radius = CornerRadius::same(8);
     style.visuals.widgets.noninteractive.corner_radius = CornerRadius::same(6);
