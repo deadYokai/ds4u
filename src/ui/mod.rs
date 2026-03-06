@@ -41,6 +41,7 @@ impl DS4UApp {
             let time = ui.input(|i| i.time);
             let pulse = (time * 2.0).sin() * 0.3 + 0.7;
             let alpha = (pulse * 255.0) as u8;
+            let c = &self.theme.colors;
 
             let controller_pic = Image::new(include_image!("../../assets/controller.svg"))
                 .maintain_aspect_ratio(true)
@@ -51,13 +52,13 @@ impl DS4UApp {
 
             ui.label(RichText::new("Connect your DualSense Controller")
                 .size(32.0)
-                .color(Color32::WHITE));
+                .color(c.text()));
 
             ui.add_space(20.0);
 
             ui.label(RichText::new("Connect via USB cable or Bluetooth")
                 .size(16.0)
-                .color(Color32::GRAY));
+                .color(c.text_dim()));
 
             ui.add_space(15.0);
 
@@ -66,14 +67,14 @@ impl DS4UApp {
 
                 let spinner = egui::Spinner::new()
                     .size(16.0)
-                    .color(Color32::from_rgb(0, 112, 220));
+                    .color(c.accent());
 
                 ui.add(spinner);
 
                 ui.label(RichText::new("Searching for controllers...")
                     .size(14.0)
-                    .color(Color32::from_rgb(0, 112, 220)));
-                    });
+                    .color(c.accent()));
+                });
         });
     }
 }

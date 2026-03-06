@@ -8,9 +8,11 @@ impl DS4UApp {
         ui.heading(RichText::new("Microphone & Audio").size(28.0));
         ui.add_space(10.0);
 
+        let c = &self.theme.colors;
+
         ui.label(RichText::new("Configure Audio")
             .size(14.0)
-            .color(Color32::GRAY));
+            .color(c.text_dim()));
 
         ui.add_space(30.0);
 

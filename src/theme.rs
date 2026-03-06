@@ -15,6 +15,7 @@ pub struct ThemeColors {
     pub text_dim: [u8; 3],
     pub success: [u8; 3],
     pub error: [u8; 3],
+    pub warning: [u8; 3]
 }
 
 impl ThemeColors {
@@ -28,6 +29,7 @@ impl ThemeColors {
     #[inline] pub fn text_dim(&self) -> Color32 { c(self.text_dim) }
     #[inline] pub fn success(&self) -> Color32 { c(self.success) }
     #[inline] pub fn error(&self) -> Color32 { c(self.error) }
+    #[inline] pub fn warning(&self) -> Color32 { c(self.warning) }
 }
 
 #[inline] fn c([r, g, b]: [u8; 3]) -> Color32 { Color32::from_rgb(r, g, b) }
@@ -72,6 +74,7 @@ pub fn default() -> Theme {
             text_dim:        [140, 150, 170],
             success:         [0,   200, 100],
             error:           [255, 80,  80 ],
+            warning:         [255, 185, 0  ],
         },
     }
 }
@@ -92,6 +95,7 @@ pub fn deep_dark() -> Theme {
             text_dim:        [120, 120, 140],
             success:         [30,  215, 96 ],
             error:           [255, 69,  58 ],
+            warning:         [255, 160, 0  ],
         },
     }
 }
@@ -112,12 +116,14 @@ pub fn tokyo_night() -> Theme {
             text_dim:        [86,  95,  137],  // comment
             success:         [158, 206, 106],  // green
             error:           [247, 118, 142],  // red
+            warning:         [224, 175, 104],  // orange
         },
     }
 }
 
 pub struct ThemeManager {
-    dir: PathBuf
+    dir: PathBuf,
+    cache: Vec<Theme>
 }
 
 impl ThemeManager {
@@ -126,7 +132,15 @@ impl ThemeManager {
             .join("ds4u").join("themes");
 
         let _ = fs::create_dir_all(&dir);
-        Self { dir }
+        let mut mgr = Self {
+            dir, cache: Vec::new()
+        };
+        mgr.reload();
+        mgr
+    }
+
+    pub fn reload(&mut self) {
+        self.cache = self.scan();
     }
 
     fn theme_path(&self, id: &str) -> PathBuf {
@@ -151,7 +165,11 @@ impl ThemeManager {
         }
     }
 
-    pub fn list_all(&self) -> Vec<Theme> {
+    pub fn list_all(&self) -> &[Theme] {
+        &self.cache
+    }
+
+    pub fn scan(&self) -> Vec<Theme> {
         let mut themes = builtin_themes();
 
         let Ok(entries) = fs::read_dir(&self.dir) else { return themes };

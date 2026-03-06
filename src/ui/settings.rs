@@ -12,7 +12,15 @@ impl DS4UApp {
 
         ui.add_space(30.0);
 
-        ui.label(RichText::new("Theme").size(18.0).strong());
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Theme").size(18.0).strong());
+            ui.add_space(6.0);
+            if ui.button(RichText::new("Refresh").size(16.0))
+                .on_hover_text("Refresh themes").clicked()
+            {
+                self.theme_manager.reload();
+            }
+        });
         ui.add_space(12.0);
 
         let themes = self.theme_manager.list_all();

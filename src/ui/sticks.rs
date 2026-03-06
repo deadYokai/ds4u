@@ -2,6 +2,7 @@ use egui::{pos2, vec2, Align2, Color32, Pos2, RichText, Sense, Slider, Ui};
 
 use crate::app::DS4UApp;
 use crate::common::SensitivityCurve;
+use crate::theme::ThemeColors;
 
 fn curve_value(curve: &SensitivityCurve, t: f32) -> f32 {
     match curve {
@@ -22,7 +23,7 @@ fn curve_value(curve: &SensitivityCurve, t: f32) -> f32 {
 }
 
 impl DS4UApp {
-    fn render_stick_visual(ui: &mut Ui, deadzone: f32) {
+    fn render_stick_visual(ui: &mut Ui, deadzone: f32, c: &ThemeColors) {
         let size = 120.0;
         let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
         let painter = ui.painter();
@@ -32,13 +33,13 @@ impl DS4UApp {
         painter.circle_stroke(
             center,
             radius - 1.0,
-            egui::Stroke::new(2.0, Color32::from_rgb(50, 70, 100))
+            egui::Stroke::new(2.0, c.widget_inactive())
         );
 
         painter.circle_filled(
             center,
             radius - 2.0,
-            Color32::from_rgb(12, 18, 30)
+            c.extreme_bg()
         );
 
         let dz_radius = deadzone / 0.3 * (radius - 4.0);
@@ -52,17 +53,17 @@ impl DS4UApp {
         painter.circle_stroke(
             center,
             dz_radius,
-            egui::Stroke::new(1.0, Color32::from_rgb(200, 60, 60))
+            egui::Stroke::new(1.0, c.error())
         );
 
         painter.circle_filled(
             center,
             4.0,
-            Color32::from_rgb(0, 122, 250)
+            c.accent()
         );
     }
 
-    fn render_curve_visual(ui: &mut Ui, curve: &SensitivityCurve, deadzone: f32) {
+    fn render_curve_visual(ui: &mut Ui, curve: &SensitivityCurve, deadzone: f32, c: &ThemeColors) {
         let size = 140.0;
         let pad = 12.0;
 
@@ -72,13 +73,13 @@ impl DS4UApp {
         painter.rect_filled(
             rect,
             6.0,
-            Color32::from_rgb(10, 16, 26)
+            c.extreme_bg()
         );
 
         painter.rect_stroke(
             rect,
             6.0,
-            egui::Stroke::new(1.5, Color32::from_rgb(40, 60, 90)),
+            egui::Stroke::new(1.5, c.widget_inactive()),
             egui::StrokeKind::Outside
         );
 
@@ -93,18 +94,18 @@ impl DS4UApp {
 
             painter.line_segment(
                 [pos2(x, plot_rect.min.y), pos2(x, plot_rect.max.y)],
-                egui::Stroke::new(0.5, Color32::from_rgb(25, 40, 60))
+                egui::Stroke::new(0.5, c.widget_inactive())
             );
 
             painter.line_segment(
                 [pos2(plot_rect.min.x, y), pos2(plot_rect.max.x, y)],
-                egui::Stroke::new(0.5, Color32::from_rgb(25, 40, 60))
+                egui::Stroke::new(0.5, c.widget_inactive())
             );
         }
 
         painter.line_segment(
             [plot_rect.left_bottom(), plot_rect.right_top()],
-            egui::Stroke::new(1.0, Color32::from_rgb(40, 60, 80))
+            egui::Stroke::new(1.0, c.widget_inactive())
         );
 
         let dz_x = plot_rect.min.x + deadzone / 0.3 * plot_rect.width() * 0.3;
@@ -128,9 +129,8 @@ impl DS4UApp {
             points.push(pos2(x, y));
         }
 
-        let accent = Color32::from_rgb(0, 150, 255);
         for w in points.windows(2) {
-            painter.line_segment([w[0], w[1]], egui::Stroke::new(2.0, accent));
+            painter.line_segment([w[0], w[1]], egui::Stroke::new(2.0, c.accent()));
         }
 
         let font = egui::FontId::proportional(9.0);
@@ -138,19 +138,19 @@ impl DS4UApp {
             plot_rect.left_bottom() + vec2(-2.0, 3.0),
             Align2::RIGHT_TOP, "0",
             font.clone(),
-            Color32::from_gray(80)
+            c.text_dim()
         );
         painter.text(
             plot_rect.left_bottom() + vec2(2.0, 3.0),
             Align2::LEFT_TOP, "1",
             font.clone(),
-            Color32::from_gray(80)
+            c.text_dim()
         );
         painter.text(
             plot_rect.left_bottom() + vec2(-2.0, 0.0),
             Align2::RIGHT_CENTER, "1",
             font.clone(),
-            Color32::from_gray(80)
+            c.text_dim()
         );
     }
 
@@ -158,13 +158,16 @@ impl DS4UApp {
         ui.heading(RichText::new("Stick Sensitivity").size(28.0));
 
         ui.add_space(10.0);
+        
+        let c = &self.theme.colors;
 
         ui.label(RichText::new("Adjust response curves and deadzones")
             .size(14.0)
-            .color(Color32::GRAY));
+            .color(c.text_dim()));
 
         ui.add_space(30.0);
 
+        let tc = self.theme.colors.clone();
         ui.columns(2, |cols| {
             cols[0].label(RichText::new("Left Stick").size(16.0).strong());
             cols[0].add_space(10.0);
@@ -208,7 +211,8 @@ impl DS4UApp {
             Self::render_curve_visual(
                 &mut cols[0],
                 &self.sticks.left_curve,
-                self.sticks.left_deadzone
+                self.sticks.left_deadzone,
+                &tc
             );
 
             cols[0].add_space(15.0);
@@ -218,7 +222,7 @@ impl DS4UApp {
             {
                 self.apply_input_transform();
             }
-            Self::render_stick_visual(&mut cols[0], self.sticks.left_deadzone);
+            Self::render_stick_visual(&mut cols[0], self.sticks.left_deadzone, &tc);
 
             cols[1].label(RichText::new("Right Stick").size(16.0).strong());
             cols[1].add_space(10.0);
@@ -262,7 +266,8 @@ impl DS4UApp {
             Self::render_curve_visual(
                 &mut cols[1],
                 &self.sticks.right_curve,
-                self.sticks.right_deadzone
+                self.sticks.right_deadzone,
+                &tc
             );
 
             cols[1].add_space(15.0);
@@ -272,7 +277,7 @@ impl DS4UApp {
             {
                 self.apply_input_transform();
             }
-            Self::render_stick_visual(&mut cols[1], self.sticks.right_deadzone);
+            Self::render_stick_visual(&mut cols[1], self.sticks.right_deadzone, &tc);
         });
     }
 }

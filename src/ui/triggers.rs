@@ -9,9 +9,11 @@ impl DS4UApp {
 
         ui.add_space(10.0);
 
+        let c = &self.theme.colors;
+
         ui.label(RichText::new("Configure trigger resistance and feedback")
             .size(14.0)
-            .color(Color32::GRAY));
+            .color(c.text_dim()));
 
         ui.add_space(30.0);
 

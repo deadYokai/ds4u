@@ -8,9 +8,11 @@ impl DS4UApp {
 
         ui.add_space(10.0);
 
+        let c = self.theme.colors.clone();
+
         ui.label(RichText::new("Customize your controller lights")
             .size(14.0)
-            .color(Color32::GRAY));
+            .color(c.text_dim()));
 
         ui.add_space(20.0);
 
@@ -84,9 +86,9 @@ impl DS4UApp {
             for i in 0..=7 {
                 let btn = Button::new(format!("{}", i + 1))
                     .fill(if self.player_leds == i {
-                        Color32::from_rgb(0, 112, 220)
+                        c.accent()
                     } else {
-                        Color32::from_rgb(30, 40, 60)
+                        c.widget_inactive()
                     }).min_size(vec2(48.0, 48.0));
 
                 if ui.add(btn).clicked() {

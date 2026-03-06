@@ -1,7 +1,5 @@
-use std::f32::consts::FRAC_PI_2;
-
 use egui::epaint::{PathShape, PathStroke};
-use egui::{include_image, pos2, vec2, Align2, Color32, CornerRadius, FontId, Image, Painter, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{include_image, pos2, vec2, Color32, CornerRadius, Image, Painter, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::app::DS4UApp;
 use crate::inputs::*;
@@ -16,9 +14,11 @@ impl DS4UApp {
 
         ui.add_space(10.0);
 
+        let c = &self.theme.colors;
+
         ui.label(RichText::new("Live visualisation")
             .size(14.0)
-            .color(Color32::GRAY));
+            .color(c.text_dim()));
 
         ui.add_space(30.0);
 
@@ -31,16 +31,16 @@ impl DS4UApp {
         let ly           = state.map_or(0x80u8, |s| s.left_y);
         let rx           = state.map_or(0x80u8, |s| s.right_x);
         let ry           = state.map_or(0x80u8, |s| s.right_y);
-        let touch_count  = state.map_or(0u8,  |s| s.touch_count);
+        let _touch_count  = state.map_or(0u8,  |s| s.touch_count);
         let touch_pts    = state.map(|s| &s.touch_points);
 
         let l3 = buttons & BTN_L3 != 0;
         let r3 = buttons & BTN_R3 != 0;
 
         let stick_colors = [
-            Color32::from_gray(60),
-            Color32::from_rgb(0, 200, 255),
-            Color32::WHITE,
+            c.widget_inactive(),
+            c.accent(),
+            c.text(),
         ];
 
         let side = 512.0; 
@@ -77,37 +77,46 @@ impl DS4UApp {
 
 
         let shoulder_r = 4.0 * scale;
-        Self::render_button(&painter, map(SVG_L1.0, SVG_L1.1), shoulder_r, buttons & BTN_L1 != 0);
-        Self::render_button(&painter, map(SVG_R1.0, SVG_R1.1), shoulder_r, buttons & BTN_R1 != 0);
+        Self::render_button(&painter, map(SVG_L1.0, SVG_L1.1),
+            shoulder_r, buttons & BTN_L1 != 0, c.accent(), c.text());
+        Self::render_button(&painter, map(SVG_R1.0, SVG_R1.1),
+            shoulder_r, buttons & BTN_R1 != 0, c.accent(), c.text());
 
         let ps_r = 3.0 * scale;
         Self::render_button(&painter,
-            map(SVG_PS_BTN.0, SVG_PS_BTN.1), ps_r, buttons & BTN_PS != 0);
+            map(SVG_PS_BTN.0, SVG_PS_BTN.1),
+            ps_r, buttons & BTN_PS != 0, c.accent(), c.text());
 
-        Self::render_button(&painter, map(SVG_MIC_BTN.0, SVG_MIC_BTN.1), 2.5 * scale, buttons & BTN_MUTE != 0);
+        Self::render_button(&painter,
+            map(SVG_MIC_BTN.0, SVG_MIC_BTN.1),
+            2.5 * scale, buttons & BTN_MUTE != 0, c.accent(), c.text());
 
 
         let trig_sz = vec2(6.0 * scale, 14.0 * scale);
-        Self::render_trigger_bar(&painter, map(SVG_L2.0, SVG_L2.1), trig_sz, l2_raw, buttons & BTN_L2 != 0);
-        Self::render_trigger_bar(&painter, map(SVG_R2.0, SVG_R2.1), trig_sz, r2_raw, buttons & BTN_R2 != 0);
+        Self::render_trigger_bar(&painter, map(SVG_L2.0, SVG_L2.1),
+            trig_sz, l2_raw, buttons & BTN_L2 != 0);
+        Self::render_trigger_bar(&painter, map(SVG_R2.0, SVG_R2.1), 
+            trig_sz, r2_raw, buttons & BTN_R2 != 0);
 
 
 
         let meta_r = 2.5 * scale;
-        Self::render_button(&painter, map(SVG_CREATE_BTN.0,  SVG_CREATE_BTN.1),  meta_r, buttons & BTN_CREATE  != 0);
-        Self::render_button(&painter, map(SVG_OPTIONS_BTN.0, SVG_OPTIONS_BTN.1), meta_r, buttons & BTN_OPTIONS != 0);
+        Self::render_button(&painter, map(SVG_CREATE_BTN.0,  SVG_CREATE_BTN.1),
+            meta_r, buttons & BTN_CREATE  != 0, c.accent(), c.text());
+        Self::render_button(&painter, map(SVG_OPTIONS_BTN.0, SVG_OPTIONS_BTN.1),
+            meta_r, buttons & BTN_OPTIONS != 0, c.accent(), c.text());
 
 
 
         let fb_r = 3.0 * scale;
         Self::render_button(&painter,
-            map(SVG_SQUARE.0, SVG_SQUARE.1), fb_r, buttons & BTN_SQUARE != 0);
+            map(SVG_SQUARE.0, SVG_SQUARE.1), fb_r, buttons & BTN_SQUARE != 0, c.accent(), c.text());
         Self::render_button(&painter,
-            map(SVG_CROSS.0, SVG_CROSS.1), fb_r, buttons & BTN_CROSS != 0);
+            map(SVG_CROSS.0, SVG_CROSS.1), fb_r, buttons & BTN_CROSS != 0, c.accent(), c.text());
         Self::render_button(&painter,
-            map(SVG_CIRCLE.0, SVG_CIRCLE.1), fb_r, buttons & BTN_CIRCLE != 0);
+            map(SVG_CIRCLE.0, SVG_CIRCLE.1), fb_r, buttons & BTN_CIRCLE != 0, c.accent(), c.text());
         Self::render_button(&painter,
-            map(SVG_TRIANGLE.0, SVG_TRIANGLE.1), fb_r, buttons & BTN_TRIANGLE != 0);
+            map(SVG_TRIANGLE.0, SVG_TRIANGLE.1), fb_r, buttons & BTN_TRIANGLE != 0, c.accent(), c.text());
 
         let dp_size = 4.0 * scale;
         Self::render_dpad_button(
@@ -116,7 +125,8 @@ impl DS4UApp {
             dp_size,
             &[DPAD_N, DPAD_NE, DPAD_NW],
             dpad,
-            2
+            2,
+            c.accent(), c.text()
         );
         Self::render_dpad_button(
             &painter,
@@ -124,7 +134,8 @@ impl DS4UApp {
             dp_size,
             &[DPAD_S, DPAD_SE, DPAD_SW],
             dpad,
-            0
+            0,
+            c.accent(), c.text()
         );
         Self::render_dpad_button(
             &painter,
@@ -132,7 +143,8 @@ impl DS4UApp {
             dp_size,
             &[DPAD_W, DPAD_NW, DPAD_SW],
             dpad,
-            1
+            1,
+            c.accent(), c.text()
         );
         Self::render_dpad_button(
             &painter,
@@ -140,7 +152,8 @@ impl DS4UApp {
             dp_size,
             &[DPAD_E, DPAD_NE, DPAD_SE],
             dpad,
-            3
+            3,
+            c.accent(), c.text()
         );
 
         {
@@ -157,7 +170,7 @@ impl DS4UApp {
                 );
                 painter.rect_stroke(
                     tp_rect, rounding,
-                    Stroke::new(1.5, Color32::from_rgb(90, 160, 255)), StrokeKind::Outside
+                    Stroke::new(1.5, c.accent()), StrokeKind::Outside
                 );
             }
 
@@ -168,7 +181,7 @@ impl DS4UApp {
                     let svgy = SVG_TOUCHPAD.1 - tp_h * 0.5
                         + (pt.y as f32 / TOUCHPAD_MAX_Y as f32) * tp_h;
                     let dot = map(svgx, svgy);
-                    painter.circle_filled(dot, 2.5 * scale, Color32::from_rgb(0, 200, 255));
+                    painter.circle_filled(dot, 2.5 * scale, c.accent());
                     painter.circle_stroke(dot, 2.5 * scale, Stroke::new(0.8, Color32::WHITE));
                 }
             }
@@ -205,7 +218,9 @@ impl DS4UApp {
         radius: f32,
         dpad: &[u8; 3],
         dpad_active: u8,
-        rotation: u8
+        rotation: u8,
+        accent_color: Color32,
+        stroke_color: Color32
     ) {
         let mut points = Vec::new();
 
@@ -268,9 +283,9 @@ impl DS4UApp {
         let s = PathShape {
             points,
             closed: true,
-            fill: if dpad.contains(&dpad_active) { Color32::from_rgb(90, 160, 255) } 
+            fill: if dpad.contains(&dpad_active) { accent_color } 
             else { Color32::TRANSPARENT },
-            stroke: PathStroke::new(1.0, Color32::WHITE),
+            stroke: PathStroke::new(1.0, stroke_color),
         };
 
         p.add(s);
@@ -309,15 +324,17 @@ impl DS4UApp {
         center: Pos2,
         radius: f32,
         pressed: bool,
+        accent_color: Color32,
+        stroke_color: Color32
     ) {
         let fill = if pressed {
-            Color32::from_rgb(90, 160, 255)
+            accent_color
         } else {
             Color32::TRANSPARENT
         };
 
         p.circle_filled(center, radius, fill);
-        p.circle_stroke(center, radius, Stroke::new(1.5, Color32::WHITE));
+        p.circle_stroke(center, radius, Stroke::new(1.5, stroke_color));
     }
 
     fn render_live_stick(
@@ -345,7 +362,7 @@ impl DS4UApp {
             center.y + ny * (radius - 10.0),
         );
         p.circle_filled(dot, 8.0, colors[0]);
-        p.circle_stroke(dot, 8.0, egui::Stroke::new(1.0, Color32::WHITE));
+        p.circle_stroke(dot, 8.0, egui::Stroke::new(1.0, colors[2]));
     }
 
 }

@@ -9,6 +9,7 @@ impl DS4UApp {
 
         ui.add_space(14.0);
 
+
         let connected = self.is_connected();
 
         let is_bt = self.controller_is_bt.unwrap_or(false);
@@ -44,8 +45,9 @@ impl DS4UApp {
             };
 
 
+        let c = self.theme.colors.clone();
         Frame::NONE
-            .fill(Color32::from_rgb(16, 24, 38))
+            .fill(c.panel_bg())
             .corner_radius(CornerRadius::same(8))
             .inner_margin(Margin::same(14))
             .show(ui, |ui| {
@@ -55,27 +57,27 @@ impl DS4UApp {
                     .num_columns(2)
                     .spacing([16.0, 6.0])
                     .show(ui, |ui| {
-                        ui.label(RichText::new("Model").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new("Model").color(c.text_dim()).size(12.0));
                         ui.label(RichText::new(model).size(12.0));
                         ui.end_row();
 
-                        ui.label(RichText::new("Serial").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new("Serial").color(c.text_dim()).size(12.0));
                         ui.label(RichText::new(serial).size(12.0).monospace());
                         ui.end_row();
 
-                        ui.label(RichText::new("Build Date").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new("Build Date").color(c.text_dim()).size(12.0));
                         ui.label(RichText::new(build_date).size(12.0));
                         ui.end_row();
 
-                        ui.label(RichText::new("Build Time").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new("Build Time").color(c.text_dim()).size(12.0));
                         ui.label(RichText::new(build_time).size(12.0));
                         ui.end_row();
 
-                        ui.label(RichText::new("Current").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new("Current").color(c.text_dim()).size(12.0));
                         ui.label(RichText::new(cur_str).size(12.0));
                         ui.end_row();
 
-                        ui.label(RichText::new("Latest").color(Color32::GRAY).size(12.0));
+                        ui.label(RichText::new("Latest").color(c.text_dim()).size(12.0));
                         ui.horizontal(|ui| {
                             if checking {
                                 ui.spinner();
@@ -96,12 +98,12 @@ impl DS4UApp {
                     ui.add_space(10.0);
                     if needs_update {
                         ui.colored_label(
-                            Color32::from_rgb(255, 190, 50),
+                            c.warning(),
                             "Update available"
                         );
                     } else {
                         ui.colored_label(
-                            Color32::from_rgb(50, 200, 100),
+                            c.success(),
                             "Firmware is up to date"
                         );
                     }
@@ -111,7 +113,7 @@ impl DS4UApp {
         ui.add_space(16.0);
 
         if fw_updating {
-            ui.label(RichText::new(&fw_status).color(Color32::GRAY).size(12.0));
+            ui.label(RichText::new(&fw_status).color(c.text_dim()).size(12.0));
 
             ui.add_space(6.0);
 
@@ -122,7 +124,7 @@ impl DS4UApp {
             );
         } else if let Some(needs_update) = b && needs_update {
             ui.colored_label(
-                Color32::from_rgb(255, 200, 0),
+                c.warning(),
                 "USB connection required for flashing"
             );
 
@@ -150,7 +152,7 @@ impl DS4UApp {
             });
 
             ui.colored_label(
-                Color32::from_rgb(255, 200, 0),
+                c.warning(),
                 "WARNING: Do not disconnect controller during update.
 Ensure battery is above 10%.
 Update can take several minutes.
@@ -163,7 +165,7 @@ Controller will disconnect when complete."
             if connected && is_bt {
                 ui.add_space(6.0);
                 ui.colored_label(
-                    Color32::from_rgb(180, 100, 100),
+                    c.error(),
                     "Disconnect Bluetooth and connect via USB to flash"
                 );
             }

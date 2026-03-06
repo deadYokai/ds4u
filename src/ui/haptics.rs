@@ -8,9 +8,11 @@ impl DS4UApp {
 
         ui.add_space(10.0);
 
+        let c = &self.theme.colors;
+
         ui.label(RichText::new("Configure vibration and haptic feedback")
             .size(14.0)
-            .color(Color32::GRAY));
+            .color(c.text_dim()));
 
         ui.add_space(30.0);
 
@@ -21,7 +23,7 @@ impl DS4UApp {
         ui.label(
             RichText::new("0 = full strength · 7 = quietest")
             .size(12.0)
-            .color(Color32::GRAY),
+            .color(c.text_dim()),
         );
 
         ui.add_space(10.0);

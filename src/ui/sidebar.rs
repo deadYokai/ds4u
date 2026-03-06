@@ -9,7 +9,7 @@ impl DS4UApp {
 
         let btn = Button::new(RichText::new(label).size(14.0))
             .fill(if is_active {
-                Color32::from_rgb(0, 112, 220)
+                self.theme.colors.accent()
             } else {
                 Color32::TRANSPARENT
             })
@@ -22,15 +22,16 @@ impl DS4UApp {
     }
 
     fn render_connection_status(&mut self, ui: &mut Ui) {
+        let c = &self.theme.colors;
         Frame::NONE
-            .fill(Color32::from_rgb(20, 30, 50))
+            .fill(c.panel_bg())
             .corner_radius(CornerRadius::same(12))
             .inner_margin(Margin::same(12))
             .show(ui, |ui| {
                 if self.is_connected() {
                     let daemon_color = if self.ipc.is_some() {
-                        Color32::GREEN
-                    } else { Color32::WHITE };
+                        c.success()
+                    } else { c.text() };
                     if let Some(battery) = &self.battery_info {
                         ui.label(RichText::new(
                                 format!("Connected • {}", battery.status)
@@ -41,11 +42,11 @@ impl DS4UApp {
                             ui.horizontal(|ui| {
                                 ui.label(format!("{}%", battery.capacity));
                                 let battery_color = if battery.capacity > 50 {
-                                    Color32::from_rgb(0, 200, 100)
+                                    c.success()
                                 } else if battery.capacity > 20 {
-                                    Color32::from_rgb(255, 180, 0)
+                                    c.warning()
                                 } else {
-                                    Color32::from_rgb(255, 50, 50)
+                                    c.error()
                                 };
 
                                 let bar_width = ui.available_width();
@@ -72,14 +73,14 @@ impl DS4UApp {
                 } else { 
                     let spinner = egui::Spinner::new()
                         .size(12.0)
-                        .color(Color32::from_rgb(0, 112, 220));
+                        .color(c.accent());
 
                     ui.add(spinner);
 
                     ui.label(RichText::new("Searching...")
                         .size(12.0)
-                        .color(Color32::from_rgb(0, 112, 220)));
-                        }
+                        .color(c.accent()));
+                }
             });
     }
 
@@ -89,7 +90,7 @@ impl DS4UApp {
         ui.with_layout(Layout::top_down(egui::Align::Min), |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("DS4U").size(24.0)
-                    .color(Color32::WHITE).strong());
+                    .color(self.theme.colors.text()).strong());
 
                 let (rect, _) = ui.allocate_exact_size(vec2(32.0, 18.0), Sense::hover());
                 let p = ui.painter();
@@ -162,13 +163,13 @@ impl DS4UApp {
             if !self.error_message.is_empty() {
                 ui.label(RichText::new(&self.error_message)
                     .size(11.0)
-                    .color(Color32::from_rgb(255, 100, 100)));
+                    .color(self.theme.colors.error()));
             }
 
             if !self.status_message.is_empty() {
                 ui.label(RichText::new(&self.status_message)
                     .size(11.0)
-                    .color(Color32::from_rgb(100, 255, 100)));
+                    .color(self.theme.colors.success()));
             }
         });
     }
