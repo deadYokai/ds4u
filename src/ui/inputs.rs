@@ -1,7 +1,14 @@
-use egui::{Align2, Color32, CornerRadius, Painter, Pos2, RichText, Ui, pos2, vec2};
+use std::f32::consts::FRAC_PI_2;
+
+use egui::epaint::{PathShape, PathStroke};
+use egui::{include_image, pos2, vec2, Align2, Color32, CornerRadius, FontId, Image, Painter, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::app::DS4UApp;
 use crate::inputs::*;
+
+include!(concat!(env!("OUT_DIR"), "/svg_coords.rs"));
+
+const SVG_VIEWPORT: f32 = 128.0;
 
 impl DS4UApp {   
     pub(crate) fn render_inputs_section(&self, ui: &mut Ui) {
@@ -22,277 +29,295 @@ impl DS4UApp {
         let r2_raw       = state.map_or(0u8,  |s| s.r2);
         let lx           = state.map_or(0x80u8, |s| s.left_x);
         let ly           = state.map_or(0x80u8, |s| s.left_y);
-        let rx_ax        = state.map_or(0x80u8, |s| s.right_x);
-        let ry_ax        = state.map_or(0x80u8, |s| s.right_y);
+        let rx           = state.map_or(0x80u8, |s| s.right_x);
+        let ry           = state.map_or(0x80u8, |s| s.right_y);
         let touch_count  = state.map_or(0u8,  |s| s.touch_count);
         let touch_pts    = state.map(|s| &s.touch_points);
 
-        let canvas_w = 700.0;
-        let canvas_h = 360.0;
+        let l3 = buttons & BTN_L3 != 0;
+        let r3 = buttons & BTN_R3 != 0;
 
-        let (canvas, _) = ui.allocate_exact_size(
-            vec2(canvas_w, canvas_h),
-            egui::Sense::hover(),
-        );
-
-        let p = ui.painter_at(canvas);
-        let o = canvas.min;
-
-        let px = |x: f32| o.x + x;
-        let py = |y: f32| o.y + y;
-        let pt = |x: f32, y: f32| pos2(o.x + x, o.y + y);
-
-        let col_body       = Color32::from_rgb(28, 38, 58);
-        let col_body_edge  = Color32::from_rgb(48, 65, 95);
-        let col_btn_off    = Color32::from_rgb(38, 52, 78);
-        let col_btn_edge   = Color32::from_rgb(55, 75, 110);
-        let col_label      = Color32::from_rgb(140, 155, 180);
-        let col_accent     = Color32::from_rgb(0, 122, 250);
-
-        let col_triangle   = Color32::from_rgb(0,   180, 140);
-        let col_circle     = Color32::from_rgb(210,  55,  55);
-        let col_cross      = Color32::from_rgb(80,  140, 220);
-        let col_square     = Color32::from_rgb(190,  80, 180);
-
-        let col_dpad_active = Color32::from_rgb(200, 210, 230);
-        let col_shoulder_active = col_accent;
-        let col_system_active   = col_accent;
-
-        p.rect_filled(
-            egui::Rect::from_min_max(pt(60.0, 40.0), pt(640.0, 255.0)),
-            CornerRadius::same(56),
-            col_body,
-        );
-        p.rect_stroke(
-            egui::Rect::from_min_max(pt(60.0, 40.0), pt(640.0, 255.0)),
-            CornerRadius::same(56),
-            egui::Stroke::new(1.5, col_body_edge),
-            egui::StrokeKind::Outside,
-        );
-
-        p.rect_filled(
-            egui::Rect::from_min_max(pt(82.0, 195.0), pt(218.0, 345.0)),
-            CornerRadius { nw: 8, ne: 8, sw: 50, se: 50 },
-            col_body,
-        );
-        p.rect_stroke(
-            egui::Rect::from_min_max(pt(82.0, 195.0), pt(218.0, 345.0)),
-            CornerRadius { nw: 8, ne: 8, sw: 50, se: 50 },
-            egui::Stroke::new(1.5, col_body_edge),
-            egui::StrokeKind::Outside,
-        );
-
-        p.rect_filled(
-            egui::Rect::from_min_max(pt(482.0, 195.0), pt(618.0, 345.0)),
-            CornerRadius { nw: 8, ne: 8, sw: 50, se: 50 },
-            col_body,
-        );
-        p.rect_stroke(
-            egui::Rect::from_min_max(pt(482.0, 195.0), pt(618.0, 345.0)),
-            CornerRadius { nw: 8, ne: 8, sw: 50, se: 50 },
-            egui::Stroke::new(1.5, col_body_edge),
-            egui::StrokeKind::Outside,
-        );
-
-        let l2_rect = egui::Rect::from_min_max(pt(62.0, 12.0), pt(202.0, 38.0));
-        let r2_rect = egui::Rect::from_min_max(pt(498.0, 12.0), pt(638.0, 38.0));
-
-        for rect in [l2_rect, r2_rect] {
-            p.rect_filled(rect, CornerRadius::same(5), Color32::from_rgb(18, 26, 42));
-            p.rect_stroke(rect, CornerRadius::same(5),
-            egui::Stroke::new(1.0, col_body_edge),
-            egui::StrokeKind::Outside);
-        }
-
-        let l2_fill_w = l2_rect.width() * (l2_raw as f32 / 255.0);
-        if l2_fill_w > 0.0 {
-            let fill = l2_rect.with_max_x(l2_rect.min.x + l2_fill_w);
-            p.rect_filled(fill, CornerRadius::same(5), col_accent);
-        }
-
-        let r2_fill_w = r2_rect.width() * (r2_raw as f32 / 255.0);
-        if r2_fill_w > 0.0 {
-            let fill = r2_rect.with_min_x(r2_rect.max.x - r2_fill_w);
-            p.rect_filled(fill, CornerRadius::same(5), col_accent);
-        }
-
-        p.text(pt(132.0, 25.0), Align2::CENTER_CENTER, "L2",
-        egui::FontId::proportional(11.0), col_label);
-        p.text(pt(568.0, 25.0), Align2::CENTER_CENTER, "R2",
-        egui::FontId::proportional(11.0), col_label);
-
-        let l1_pressed = buttons & BTN_L1 != 0;
-        let r1_pressed = buttons & BTN_R1 != 0;
-
-        let l1_rect = egui::Rect::from_min_max(pt(65.0, 40.0), pt(200.0, 62.0));
-        let r1_rect = egui::Rect::from_min_max(pt(500.0, 40.0), pt(635.0, 62.0));
-
-        p.rect_filled(l1_rect, CornerRadius { nw: 4, ne: 4, sw: 4, se: 4 },
-            if l1_pressed { col_shoulder_active } else { col_btn_off });
-        p.rect_filled(r1_rect, CornerRadius::same(4),
-        if r1_pressed { col_shoulder_active } else { col_btn_off });
-
-        p.text(pt(132.0, 51.0), Align2::CENTER_CENTER, "L1",
-        egui::FontId::proportional(11.0), col_label);
-        p.text(pt(568.0, 51.0), Align2::CENTER_CENTER, "R1",
-        egui::FontId::proportional(11.0), col_label);
-
-        let dc = pt(192.0, 152.0);
-        let arm_w = 22.0;
-        let arm_h = 26.0;
-        let cr = CornerRadius::same(3);
-
-        let dpad_rects = [
-            (egui::Rect::from_center_size(
-                    pos2(dc.x,            dc.y - arm_h),
-                    vec2(arm_w, arm_h)), [DPAD_N, DPAD_NE, DPAD_NW], "▲"),
-                    (egui::Rect::from_center_size(
-                            pos2(dc.x,            dc.y + arm_h),
-                            vec2(arm_w, arm_h)), [DPAD_S, DPAD_SE, DPAD_SW], "▼"),
-                            (egui::Rect::from_center_size(
-                                    pos2(dc.x - arm_h,   dc.y),
-                                    vec2(arm_h, arm_w)), [DPAD_W, DPAD_NW, DPAD_SW], "◄"),
-                                    (egui::Rect::from_center_size(
-                                            pos2(dc.x + arm_h,   dc.y),
-                                            vec2(arm_h, arm_w)), [DPAD_E, DPAD_NE, DPAD_SE], "►"),
+        let stick_colors = [
+            Color32::from_gray(60),
+            Color32::from_rgb(0, 200, 255),
+            Color32::WHITE,
         ];
 
-        p.rect_filled(
-            egui::Rect::from_center_size(dc, vec2(arm_w, arm_w)),
-            CornerRadius::same(3),
-            col_btn_off,
+        let side = 512.0; 
+        let desired_size = vec2(side, side);
+        let (response, painter) = ui.allocate_painter(desired_size, Sense::hover());
+        let canvas = response.rect;
+
+        Image::new(include_image!("../../assets/controller_body.svg"))
+            .maintain_aspect_ratio(true)
+            .paint_at(ui, canvas);
+
+        let scale = canvas.width() / SVG_VIEWPORT;
+
+        let map = |x: f32, y: f32| -> Pos2 {
+            pos2(
+                canvas.min.x + (x / SVG_VIEWPORT) * canvas.width(),
+                canvas.min.y + (y / SVG_VIEWPORT) * canvas.width(),)
+        };
+
+        let stick_r = 7.0 * scale;
+
+        Self::render_live_stick(
+            &painter,
+            map(SVG_STICK_L.0, SVG_STICK_L.1),
+            stick_r, [lx, ly], l3,
+            self.sticks.left_deadzone, stick_colors,
+        );
+        Self::render_live_stick(
+            &painter,
+            map(SVG_STICK_R.0, SVG_STICK_R.1),
+            stick_r, [rx, ry], r3,
+            self.sticks.right_deadzone, stick_colors,
         );
 
-        for (rect, dirs, label) in &dpad_rects {
-            let active = dirs.contains(&dpad);
-            p.rect_filled(*rect, cr, if active { col_dpad_active } else { col_btn_off });
-            p.rect_stroke(*rect, cr,
-                egui::Stroke::new(1.0, col_btn_edge), egui::StrokeKind::Outside);
-            p.text(rect.center(), Align2::CENTER_CENTER, *label,
-            egui::FontId::proportional(10.0),
-            if active { Color32::from_rgb(20, 30, 50) } else { col_label });
-        }  
 
-        let fc    = pt(500.0, 152.0);
-        let fb_r  = 16.0;
-        let fb_d  = 34.0;
+        let shoulder_r = 4.0 * scale;
+        Self::render_button(&painter, map(SVG_L1.0, SVG_L1.1), shoulder_r, buttons & BTN_L1 != 0);
+        Self::render_button(&painter, map(SVG_R1.0, SVG_R1.1), shoulder_r, buttons & BTN_R1 != 0);
 
-        struct FaceBtn {
-            cx: f32, cy: f32,
-            mask: u32,
-            active_col: Color32,
-            label: &'static str,
-        }
-        let face_btns = [
-            FaceBtn { cx: fc.x,        cy: fc.y - fb_d, mask: BTN_TRIANGLE,
-            active_col: col_triangle, label: "△" },
-            FaceBtn { cx: fc.x + fb_d, cy: fc.y,        mask: BTN_CIRCLE,
-            active_col: col_circle,   label: "○" },
-            FaceBtn { cx: fc.x,        cy: fc.y + fb_d, mask: BTN_CROSS,
-            active_col: col_cross,    label: "✕" },
-            FaceBtn { cx: fc.x - fb_d, cy: fc.y,        mask: BTN_SQUARE,
-            active_col: col_square,   label: "□" },
-        ];
+        let ps_r = 3.0 * scale;
+        Self::render_button(&painter,
+            map(SVG_PS_BTN.0, SVG_PS_BTN.1), ps_r, buttons & BTN_PS != 0);
 
-        for btn in &face_btns {
-            let centre = pos2(px(btn.cx - o.x), py(btn.cy - o.y));
-            let active = buttons & btn.mask != 0;
-            p.circle_filled(centre, fb_r,
-                if active { btn.active_col }
-                else      { col_btn_off   });
-            p.circle_stroke(centre, fb_r,
-                egui::Stroke::new(1.0, col_btn_edge));
-            p.text(centre, Align2::CENTER_CENTER, btn.label,
-                egui::FontId::proportional(13.0),
-                if active { Color32::WHITE } else { col_label });
-        }
+        Self::render_button(&painter, map(SVG_MIC_BTN.0, SVG_MIC_BTN.1), 2.5 * scale, buttons & BTN_MUTE != 0);
 
-        let tp_rect = egui::Rect::from_min_max(pt(268.0, 74.0), pt(432.0, 182.0));
-        let tp_pressed = buttons & BTN_TOUCHPAD != 0;
 
-        p.rect_filled(tp_rect, CornerRadius::same(10),
-        if tp_pressed { Color32::from_rgb(45, 65, 100) } else { Color32::from_rgb(22, 32, 50) });
-        p.rect_stroke(tp_rect, CornerRadius::same(10),
-        egui::Stroke::new(if tp_pressed { 1.5 } else { 1.0 },
-            if tp_pressed { col_accent } else { col_body_edge }),
-            egui::StrokeKind::Outside);
+        let trig_sz = vec2(6.0 * scale, 14.0 * scale);
+        Self::render_trigger_bar(&painter, map(SVG_L2.0, SVG_L2.1), trig_sz, l2_raw, buttons & BTN_L2 != 0);
+        Self::render_trigger_bar(&painter, map(SVG_R2.0, SVG_R2.1), trig_sz, r2_raw, buttons & BTN_R2 != 0);
 
-        if let Some(pts) = touch_pts {
-            for tp in pts.iter().filter(|t| t.active) {
-                let tx = tp_rect.min.x + (tp.x as f32 / TOUCHPAD_MAX_X as f32) * tp_rect.width();
-                let ty = tp_rect.min.y + (tp.y as f32 / TOUCHPAD_MAX_Y as f32) * tp_rect.height();
-                p.circle_filled(pos2(tx, ty), 7.0, col_accent);
-                p.circle_stroke(pos2(tx, ty), 7.0,
-                egui::Stroke::new(1.0, Color32::WHITE));
+
+
+        let meta_r = 2.5 * scale;
+        Self::render_button(&painter, map(SVG_CREATE_BTN.0,  SVG_CREATE_BTN.1),  meta_r, buttons & BTN_CREATE  != 0);
+        Self::render_button(&painter, map(SVG_OPTIONS_BTN.0, SVG_OPTIONS_BTN.1), meta_r, buttons & BTN_OPTIONS != 0);
+
+
+
+        let fb_r = 3.0 * scale;
+        Self::render_button(&painter,
+            map(SVG_SQUARE.0, SVG_SQUARE.1), fb_r, buttons & BTN_SQUARE != 0);
+        Self::render_button(&painter,
+            map(SVG_CROSS.0, SVG_CROSS.1), fb_r, buttons & BTN_CROSS != 0);
+        Self::render_button(&painter,
+            map(SVG_CIRCLE.0, SVG_CIRCLE.1), fb_r, buttons & BTN_CIRCLE != 0);
+        Self::render_button(&painter,
+            map(SVG_TRIANGLE.0, SVG_TRIANGLE.1), fb_r, buttons & BTN_TRIANGLE != 0);
+
+        let dp_size = 4.0 * scale;
+        Self::render_dpad_button(
+            &painter,
+            map(SVG_DPAD_T.0, SVG_DPAD_T.1),
+            dp_size,
+            &[DPAD_N, DPAD_NE, DPAD_NW],
+            dpad,
+            2
+        );
+        Self::render_dpad_button(
+            &painter,
+            map(SVG_DPAD_B.0, SVG_DPAD_B.1),
+            dp_size,
+            &[DPAD_S, DPAD_SE, DPAD_SW],
+            dpad,
+            0
+        );
+        Self::render_dpad_button(
+            &painter,
+            map(SVG_DPAD_L.0, SVG_DPAD_L.1),
+            dp_size,
+            &[DPAD_W, DPAD_NW, DPAD_SW],
+            dpad,
+            1
+        );
+        Self::render_dpad_button(
+            &painter,
+            map(SVG_DPAD_R.0, SVG_DPAD_R.1),
+            dp_size,
+            &[DPAD_E, DPAD_NE, DPAD_SE],
+            dpad,
+            3
+        );
+
+        {
+            let tp_w = 46.0;
+            let tp_h = 26.0;
+            let tp_center = map(SVG_TOUCHPAD.0, SVG_TOUCHPAD.1);
+            let tp_rect   = Rect::from_center_size(tp_center, vec2(tp_w * scale, tp_h * scale));
+            let rounding  = CornerRadius::same(3);
+
+            if buttons & BTN_TOUCHPAD != 0 {
+                painter.rect_filled(
+                    tp_rect, rounding,
+                    Color32::from_rgba_unmultiplied(90, 160, 255, 50),
+                );
+                painter.rect_stroke(
+                    tp_rect, rounding,
+                    Stroke::new(1.5, Color32::from_rgb(90, 160, 255)), StrokeKind::Outside
+                );
+            }
+
+            if let Some(pts) = touch_pts {
+                for pt in pts.iter().filter(|p| p.active) {
+                    let svgx = SVG_TOUCHPAD.0 - tp_w * 0.5
+                        + (pt.x as f32 / TOUCHPAD_MAX_X as f32) * tp_w;
+                    let svgy = SVG_TOUCHPAD.1 - tp_h * 0.5
+                        + (pt.y as f32 / TOUCHPAD_MAX_Y as f32) * tp_h;
+                    let dot = map(svgx, svgy);
+                    painter.circle_filled(dot, 2.5 * scale, Color32::from_rgb(0, 200, 255));
+                    painter.circle_stroke(dot, 2.5 * scale, Stroke::new(0.8, Color32::WHITE));
+                }
             }
         }
+    }
 
-        if touch_count == 0 {
-            p.text(tp_rect.center(), Align2::CENTER_CENTER, "TOUCHPAD",
-            egui::FontId::proportional(10.0), col_label);
+    fn cubic_bezier(p0: Pos2, p1: Pos2, p2: Pos2, p3: Pos2, steps: usize) -> Vec<Pos2> {
+        let mut pts = Vec::with_capacity(steps + 1);
+
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32;
+            let u = 1.0 - t;
+
+            let x =
+                u*u*u*p0.x +
+                3.0*u*u*t*p1.x +
+                3.0*u*t*t*p2.x +
+                t*t*t*p3.x;
+
+            let y =
+                u*u*u*p0.y +
+                3.0*u*u*t*p1.y +
+                3.0*u*t*t*p2.y +
+                t*t*t*p3.y;
+
+            pts.push(Pos2::new(x, y));
         }
 
-        let create_pressed = buttons & BTN_CREATE != 0;
-        let create_rect = egui::Rect::from_min_max(pt(236.0, 130.0), pt(264.0, 148.0));
-        p.rect_filled(create_rect, CornerRadius::same(5),
-        if create_pressed { col_system_active } else { col_btn_off });
-        p.rect_stroke(create_rect, CornerRadius::same(5),
-        egui::Stroke::new(1.0, col_btn_edge), egui::StrokeKind::Outside);
-        p.text(create_rect.center(), Align2::CENTER_CENTER, "≡+",
-        egui::FontId::proportional(9.0), col_label);
+        pts
+    }
 
-        let options_pressed = buttons & BTN_OPTIONS != 0;
-        let opts_rect = egui::Rect::from_min_max(pt(436.0, 130.0), pt(464.0, 148.0));
-        p.rect_filled(opts_rect, CornerRadius::same(5),
-        if options_pressed { col_system_active } else { col_btn_off });
-        p.rect_stroke(opts_rect, CornerRadius::same(5),
-        egui::Stroke::new(1.0, col_btn_edge), egui::StrokeKind::Outside);
-        p.text(opts_rect.center(), Align2::CENTER_CENTER, "≡",
-        egui::FontId::proportional(9.0), col_label);
+    fn render_dpad_button(
+        p: &Painter, center: Pos2,
+        radius: f32,
+        dpad: &[u8; 3],
+        dpad_active: u8,
+        rotation: u8
+    ) {
+        let mut points = Vec::new();
 
-        let mute_pressed = buttons & BTN_MUTE != 0;
-        let mute_c = pt(350.0, 66.0);
-        p.circle_filled(mute_c, 10.0,
-            if mute_pressed { col_system_active } else { col_btn_off });
-        p.circle_stroke(mute_c, 10.0, egui::Stroke::new(1.0, col_btn_edge));
-        p.text(mute_c, Align2::CENTER_CENTER, "🔇",
-            egui::FontId::proportional(8.0), col_label);
+        let w = radius;
+        let h = radius;
 
-        let ps_pressed = buttons & BTN_PS != 0;
-        let ps_c = pt(350.0, 210.0);
-        let ps_col = if ps_pressed {
-            Color32::from_rgb(255, 255, 255)
-        } else {
-            col_btn_off
+        let cx = center.x;
+        let cy = center.y;
+
+        let left  = cx - w * 0.5;
+        let right = cx + w * 0.5;
+        let top   = cy - h * 0.5;
+        let bot   = cy + h * 0.5;
+
+        let tip = Pos2::new(cx, top - h * 0.6);
+
+        let p0 = Pos2::new(left, top);
+        let p1 = Pos2::new(cx, tip.y);
+        let p2 = Pos2::new(right, top);
+
+        points.push(p0);
+
+        points.extend(Self::cubic_bezier(
+                p0,
+                Pos2::new(left, top - h * 0.2),
+                Pos2::new(cx - w * 0.2, tip.y),
+                p1,
+                10,
+        ));
+
+        points.extend(Self::cubic_bezier(
+                p1,
+                Pos2::new(cx + w * 0.2, tip.y),
+                Pos2::new(right, top - h * 0.2),
+                p2,
+                10,
+        ));
+
+        points.push(Pos2::new(right, bot));
+        points.push(Pos2::new(left, bot));
+
+        let rot = rotation % 4;
+
+        for p in &mut points {
+            let dx = p.x - center.x;
+            let dy = p.y - center.y;
+
+            let (rx, ry) = match rot {
+                0 => (dx, dy),
+                1 => (-dy, dx),
+                2 => (-dx, -dy),
+                3 => (dy, -dx),
+                _ => unreachable!(),
+            };
+
+            p.x = center.x + rx;
+            p.y = center.y + ry;
+        }
+
+        let s = PathShape {
+            points,
+            closed: true,
+            fill: if dpad.contains(&dpad_active) { Color32::from_rgb(90, 160, 255) } 
+            else { Color32::TRANSPARENT },
+            stroke: PathStroke::new(1.0, Color32::WHITE),
         };
-        p.circle_filled(ps_c, 16.0, ps_col);
-        p.circle_stroke(ps_c, 16.0, egui::Stroke::new(1.5, col_btn_edge));
-        p.text(ps_c, Align2::CENTER_CENTER, "PS",
-            egui::FontId::proportional(9.0),
-            if ps_pressed { Color32::from_rgb(20, 30, 50) } else { col_label });
 
-        Self::render_live_stick(
-            &p, pt(150.0, 270.0), 42.0,
-            [lx, ly], buttons & BTN_L3 != 0, [col_accent, col_btn_off, col_btn_edge],
-        );
+        p.add(s);
+    }
 
-        Self::render_live_stick(
-            &p, pt(440.0, 270.0), 42.0,
-            [rx_ax, ry_ax], buttons & BTN_R3 != 0, [col_accent, col_btn_off, col_btn_edge],
-        );
+    fn render_trigger_bar(
+        p: &Painter,
+        anchor: Pos2,
+        size: Vec2,
+        analog: u8,
+        digital: bool,
+    ) {
+        let rect = Rect::from_min_size(pos2(anchor.x - size.x * 0.5, anchor.y), size);
+        let rounding = CornerRadius::same(2);
 
-        p.text(pt(150.0, 320.0), Align2::CENTER_CENTER, "L3",
-        egui::FontId::proportional(10.0), col_label);
-        p.text(pt(440.0, 320.0), Align2::CENTER_CENTER, "R3",
-        egui::FontId::proportional(10.0), col_label);
+        p.rect_filled(rect, rounding, Color32::from_gray(35));
 
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(format!(
-                        "L2 {:3}   R2 {:3}   LX {:3}  LY {:3}   RX {:3}  RY {:3}   Touches {}",
-                        l2_raw, r2_raw, lx, ly, rx_ax, ry_ax, touch_count
-            )).size(12.0).color(Color32::from_gray(120)).monospace());
-        });
+        let fill_h = (analog as f32 / 255.0) * size.y;
+        if fill_h > 0.5 {
+            let fill_rect = Rect::from_min_size(
+                pos2(rect.min.x, rect.max.y - fill_h),
+                vec2(size.x, fill_h),
+            );
+            p.rect_filled(
+                fill_rect, rounding,
+                if digital { Color32::from_rgb(90, 160, 255) } else { Color32::from_rgb(50, 90, 160) },
+            );
+        }
+
+        p.rect_stroke(rect, rounding, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Outside);
+
+    }
+
+    fn render_button(
+        p: &Painter,
+        center: Pos2,
+        radius: f32,
+        pressed: bool,
+    ) {
+        let fill = if pressed {
+            Color32::from_rgb(90, 160, 255)
+        } else {
+            Color32::TRANSPARENT
+        };
+
+        p.circle_filled(center, radius, fill);
+        p.circle_stroke(center, radius, Stroke::new(1.5, Color32::WHITE));
     }
 
     fn render_live_stick(
@@ -301,15 +326,17 @@ impl DS4UApp {
         radius: f32,
         raw: [u8; 2],
         pressed: bool,
+        deadzone: f32,
         colors: [Color32; 3]
     ) {
-        p.circle_filled(center, radius, colors[1]);
+        p.circle_filled(center, radius, if pressed {colors[1]} else {Color32::TRANSPARENT});
         p.circle_stroke(center, radius,
-            egui::Stroke::new(if pressed { 2.5 } else { 1.5 },
-                if pressed { colors[0] } else { colors[2] }));
+            egui::Stroke::new(1.0, Color32::WHITE));
 
-        p.circle_stroke(center, radius * 0.55,
-            egui::Stroke::new(0.5, Color32::from_rgb(40, 55, 80)));
+        if deadzone > 0.0 {
+            p.circle_filled(center, radius * deadzone.clamp(0.0, 1.0),
+                Color32::from_rgba_unmultiplied(200, 50, 50, 60));
+        }
 
         let nx = (raw[0] as f32 - 128.0) / 128.0;
         let ny = (raw[1] as f32 - 128.0) / 128.0;
