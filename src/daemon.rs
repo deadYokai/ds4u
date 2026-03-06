@@ -47,6 +47,8 @@ struct DaemonState {
     active_transform: Mutex<InputTransform>,
     active_effect: Mutex<LightbarEffect>,
     lightbar_color: Mutex<(u8, u8, u8, u8)>,
+    player_leds: Mutex<u8>,
+    mic_enabled: Mutex<bool>,
 }
 
 impl DaemonState {
@@ -56,7 +58,9 @@ impl DaemonState {
             update_in_progress: AtomicBool::new(false),
             active_transform: Mutex::new(InputTransform::default()),
             active_effect: Mutex::new(LightbarEffect::None),
-            lightbar_color: Mutex::new((0, 128, 255, 255))
+            lightbar_color: Mutex::new((0, 128, 255, 255)),
+            player_leds: Mutex::new(1),
+            mic_enabled: Mutex::new(false),
         })
     }
 }
@@ -94,6 +98,13 @@ pub fn run_daemon() {
 
         if let Some(p) = profile {
             *state.active_transform.lock().unwrap() = p.to_input_transform();
+            let r  = (p.lightbar_r          * 255.0) as u8;
+            let g  = (p.lightbar_g          * 255.0) as u8;
+            let b  = (p.lightbar_b          * 255.0) as u8;
+            let br = p.lightbar_brightness  as u8;
+            *state.lightbar_color.lock().unwrap() = (r, g, b, br);
+            *state.player_leds.lock().unwrap() = p.player_leds;
+            *state.mic_enabled.lock().unwrap() = p.mic_enabled;
             println!("{} autoloaded profile '{}'", TAG, p.name);
         }
     }
@@ -126,14 +137,20 @@ fn device_connection_loop(state: Arc<DaemonState>) {
             let mut dev = state.device.lock().unwrap();
             if dev.is_none()
                 && let Ok(api) = HidApi::new()
+                && let Ok(mut ds) = DualSense::new(&api, None) 
             {
-                match DualSense::new(&api, None) {
-                    Ok(ds) => {
-                        println!("{} controller connected: {}", TAG, ds.serial());
-                        *dev = Some(ds)
-                    }
-                    Err(_) => {}
-                }
+                    println!("{} controller connected: {}", TAG, ds.serial());
+
+                    let (r, g, b, br) = *state.lightbar_color.lock().unwrap();
+                    let _ = ds.set_lightbar(r, g, b, br);
+
+                    let leds = *state.player_leds.lock().unwrap();
+                    let _ = ds.set_player_leds(leds);
+
+                    let mic = *state.mic_enabled.lock().unwrap();
+                    let _ = ds.set_mic(mic);
+
+                    *dev = Some(ds);
             }
         }
         sleep(Duration::from_secs(2));
@@ -250,11 +267,11 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
     let x  = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
     let m  = v - c;
     let (r, g, b) = if      h < 60.0  { (c, x, 0.0) }
-                    else if h < 120.0 { (x, c, 0.0) }
-                    else if h < 180.0 { (0.0, c, x) }
-                    else if h < 240.0 { (0.0, x, c) }
-                    else if h < 300.0 { (x, 0.0, c) }
-                    else              { (c, 0.0, x) };
+    else if h < 120.0 { (x, c, 0.0) }
+    else if h < 180.0 { (0.0, c, x) }
+    else if h < 240.0 { (0.0, x, c) }
+    else if h < 300.0 { (x, 0.0, c) }
+    else              { (c, 0.0, x) };
     (
         ((r + m) * 255.0) as u8,
         ((g + m) * 255.0) as u8,
@@ -302,10 +319,10 @@ fn effect_loop(state: Arc<DaemonState>) {
             LightbarEffect::None => unreachable!(),
         };
 
-        if let Ok(mut dev) = state.device.try_lock() {
-            if let Some(ds) = dev.as_mut() {
-                let _ = ds.set_lightbar(r, g, b, base_br);
-            }
+        if let Ok(mut dev) = state.device.try_lock() 
+            && let Some(ds) = dev.as_mut()
+        {
+            let _ = ds.set_lightbar(r, g, b, base_br);
         }
     }
 }
@@ -355,38 +372,38 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform)
         DaemonCommand::SetLightbar { r, g, b, brightness } =>
             ok_or_err!(ds.set_lightbar(r, g, b, brightness)),
 
-        DaemonCommand::SetLightbarEnabled { enabled } =>
-            ok_or_err!(ds.set_lightbar_enabled(enabled)),
+            DaemonCommand::SetLightbarEnabled { enabled } =>
+                ok_or_err!(ds.set_lightbar_enabled(enabled)),
 
-        DaemonCommand::SetPlayerLeds { leds } =>
-            ok_or_err!(ds.set_player_leds(leds)),
+                DaemonCommand::SetPlayerLeds { leds } =>
+                    ok_or_err!(ds.set_player_leds(leds)),
 
-        DaemonCommand::SetMic { enabled } =>
-            ok_or_err!(ds.set_mic(enabled)),
+                    DaemonCommand::SetMic { enabled } =>
+                        ok_or_err!(ds.set_mic(enabled)),
 
-        DaemonCommand::SetMicLed { state } =>
-            ok_or_err!(ds.set_mic_led(state)),
+                        DaemonCommand::SetMicLed { state } =>
+                            ok_or_err!(ds.set_mic_led(state)),
 
-        DaemonCommand::SetTriggerOff =>
-            ok_or_err!(ds.set_trigger_off()),
+                        DaemonCommand::SetTriggerOff =>
+                            ok_or_err!(ds.set_trigger_off()),
 
-        DaemonCommand::SetTriggerEffect { right, left, effect_type, params } =>
-            ok_or_err!(ds.set_trigger_effect(left, right, effect_type, &params)),
+                            DaemonCommand::SetTriggerEffect { right, left, effect_type, params } =>
+                                ok_or_err!(ds.set_trigger_effect(left, right, effect_type, &params)),
 
-        DaemonCommand::SetVibration { rumble, trigger } =>
-            ok_or_err!(ds.set_vibration(rumble, trigger)),
+                                DaemonCommand::SetVibration { rumble, trigger } =>
+                                    ok_or_err!(ds.set_vibration(rumble, trigger)),
 
-        DaemonCommand::SetSpeaker { mode } =>
-            ok_or_err!(ds.set_speaker(&mode)),
+                                    DaemonCommand::SetSpeaker { mode } =>
+                                        ok_or_err!(ds.set_speaker(&mode)),
 
-        DaemonCommand::SetVolume { volume } =>
-            ok_or_err!(ds.set_volume(volume)),
+                                        DaemonCommand::SetVolume { volume } =>
+                                            ok_or_err!(ds.set_volume(volume)),
 
-        DaemonCommand::SetLightbarEffect { .. } => unreachable!(),
+                                            DaemonCommand::SetLightbarEffect { .. } => unreachable!(),
 
-        DaemonCommand::SetUpdateMode { .. } => unreachable!(),
-        DaemonCommand::SetInputTransform { .. } => unreachable!(),
-        DaemonCommand::ClearInputTransform => unreachable!()
+                                            DaemonCommand::SetUpdateMode { .. } => unreachable!(),
+                                            DaemonCommand::SetInputTransform { .. } => unreachable!(),
+                                            DaemonCommand::ClearInputTransform => unreachable!()
     }
 }
 
