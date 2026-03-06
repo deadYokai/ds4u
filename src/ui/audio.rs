@@ -21,6 +21,7 @@ impl DS4UApp {
 
         if ui.checkbox(&mut self.microphone.enabled, "Microphone Enabled").changed() {
             self.apply_microphone();
+            self.sync_profile();
         }
 
         ui.add_space(20.0);

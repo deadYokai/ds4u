@@ -62,6 +62,16 @@ impl ProfileManager {
             .join("profiles")
     }
 
+    pub fn ensure_default_exists(&self) -> Profile {
+        if self.profile_exists("Default") {
+            self.load_profile("Default").unwrap_or_default()
+        } else {
+            let profile = Profile::default();
+            let _ = self.save_profile(&profile);
+            profile
+        }
+    }
+
     fn sanitize_filename(name: &str) -> String {
         name.chars()
             .map(|c| {

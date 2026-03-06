@@ -176,6 +176,24 @@ impl DS4UApp {
         };
 
         app.check_for_controller();
+
+        {
+            let name = if app.settings.profile.is_empty() {
+                "Default".to_string()
+            } else {
+                app.settings.profile.clone()
+            };
+
+            let profile = if app.profile_manager.profile_exists(&name) {
+                app.profile_manager.load_profile(&name)
+                    .unwrap_or_else(|_| app.profile_manager.ensure_default_exists())
+            } else {
+                app.profile_manager.ensure_default_exists()
+            };
+
+            app.load_profile(&profile);
+        }
+
         app
     }
     
@@ -256,6 +274,10 @@ impl DS4UApp {
                 self.error_message.clear();
                 self.lightbar.enabled = true;
                 self.update_battery();
+                self.apply_lightbar();
+                self.apply_player_leds();
+                self.apply_microphone();
+                self.apply_input_transform();
             }
             Err(_) => {
                 self.controller = None;
@@ -286,6 +308,10 @@ impl DS4UApp {
         self.error_message.clear();
         self.lightbar.enabled = true;
         self.update_battery();
+        self.apply_lightbar();
+        self.apply_player_leds();
+        self.apply_microphone();
+        self.apply_input_transform();
     }
 
     fn disconnect_controller(&mut self) {
@@ -503,19 +529,34 @@ impl DS4UApp {
         }
     }
 
-    fn load_profile(&mut self, profile: &Profile) {
-        self.lightbar.r = profile.lightbar_r;
-        self.lightbar.g = profile.lightbar_g;
-        self.lightbar.b = profile.lightbar_b;
+    fn load_profile(&mut self, profile: &Profile) {    
+        self.lightbar.r          = profile.lightbar_r;
+        self.lightbar.g          = profile.lightbar_g;
+        self.lightbar.b          = profile.lightbar_b;
         self.lightbar.brightness = profile.lightbar_brightness;
-
-        self.player_leds = profile.player_leds;
-
-        self.microphone.enabled = profile.mic_enabled;
+        self.player_leds         = profile.player_leds;
+        self.microphone.enabled  = profile.mic_enabled;
 
         self.apply_lightbar();
         self.apply_player_leds();
         self.current_profile = Some(profile.clone());
+
+        self.settings.profile = profile.name.clone();
+        self.settings_manager.save(&self.settings);
+
+    }
+
+    pub(crate) fn sync_profile(&mut self) {
+        let Some(profile) = self.current_profile.as_mut() else { return };
+
+        profile.lightbar_r          = self.lightbar.r;
+        profile.lightbar_g          = self.lightbar.g;
+        profile.lightbar_b          = self.lightbar.b;
+        profile.lightbar_brightness = self.lightbar.brightness;
+        profile.player_leds         = self.player_leds;
+        profile.mic_enabled         = self.microphone.enabled;
+
+        let _ = self.profile_manager.save_profile(profile);
     }
 
     pub(crate) fn check_controller_connection(&mut self) {

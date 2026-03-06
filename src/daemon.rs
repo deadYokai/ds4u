@@ -5,8 +5,7 @@ use std::{
 use hidapi::HidApi;
 
 use crate::{
-    dualsense::DualSense,
-    ipc::{socket_path, DaemonCommand, DaemonResponse, IpcClient}, transform::InputTransform,
+    dualsense::DualSense, ipc::{socket_path, DaemonCommand, DaemonResponse, IpcClient}, profiles::ProfileManager, settings::SettingsManager, transform::InputTransform
 };
 
 const TAG: &str = "[ds4u daemon]";
@@ -71,6 +70,29 @@ pub fn run_daemon() {
     println!("{} listening on {}", TAG, path.display());
 
     let state = DaemonState::new();
+
+    {
+        let sm = SettingsManager::new();
+        let settings = sm.load();
+        let pm = ProfileManager::new();
+
+        let name = if settings.profile.is_empty() {
+            "Default".to_string()
+        } else {
+            settings.profile
+        };
+
+        let profile = if pm.profile_exists(&name) {
+            pm.load_profile(&name).ok()
+        } else {
+            Some(pm.ensure_default_exists())
+        };
+
+        if let Some(p) = profile {
+            *state.active_transform.lock().unwrap() = p.to_input_transform();
+            println!("{} autoloaded profile '{}'", TAG, p.name);
+        }
+    }
 
     {
         let s = Arc::clone(&state);

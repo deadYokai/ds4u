@@ -28,6 +28,7 @@ impl DS4UApp {
                 self.lightbar.g = color[1];
                 self.lightbar.b = color[2];
                 self.apply_lightbar();
+                self.sync_profile();
             }
 
             ui.add_space(20.0);
@@ -56,6 +57,7 @@ impl DS4UApp {
                     self.lightbar.g = g;
                     self.lightbar.b = b;
                     self.apply_lightbar();
+                    self.sync_profile();
                 }
             }
         });
@@ -70,6 +72,7 @@ impl DS4UApp {
             if ui.add(Slider::new(&mut self.lightbar.brightness, 0.0..=255.0)
                 .text("").show_value(false)).changed() {
                 self.apply_lightbar();
+                self.sync_profile();
             }
 
             ui.label(format!("{}%", (self.lightbar.brightness / 255.0 * 100.0) as u8));
@@ -94,6 +97,7 @@ impl DS4UApp {
                 if ui.add(btn).clicked() {
                     self.player_leds = i;
                     self.apply_player_leds();
+                    self.sync_profile();
                 }
             }
         });
