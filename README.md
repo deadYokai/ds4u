@@ -105,7 +105,8 @@ Filename must match `id` field inside JSON.
     "error":           [247, 118, 142],
     "warning":         [224, 175, 104]
   }
-}```
+}
+```
 
 All color values are `[R, G, B]` in the 0–255 range.
 
