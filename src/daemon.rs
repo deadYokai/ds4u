@@ -1,11 +1,11 @@
 use std::{
-    fs, io::{BufRead, BufReader, Write}, os::unix::net::{UnixListener, UnixStream}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread::{self, sleep}, time::Duration
+    fs, io::{BufRead, BufReader, Write}, os::unix::net::{UnixListener, UnixStream}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread::{self, sleep}, time::{Duration, Instant}
 };
 
 use hidapi::HidApi;
 
 use crate::{
-    dualsense::DualSense, ipc::{socket_path, DaemonCommand, DaemonResponse, IpcClient}, profiles::ProfileManager, settings::SettingsManager, transform::InputTransform
+    common::LightbarEffect, dualsense::DualSense, ipc::{socket_path, DaemonCommand, DaemonResponse, IpcClient}, profiles::ProfileManager, settings::SettingsManager, transform::InputTransform
 };
 
 const TAG: &str = "[ds4u daemon]";
@@ -44,7 +44,9 @@ impl DaemonManager {
 struct DaemonState {
     device: Mutex<Option<DualSense>>,
     update_in_progress: AtomicBool,
-    active_transform: Mutex<InputTransform>
+    active_transform: Mutex<InputTransform>,
+    active_effect: Mutex<LightbarEffect>,
+    lightbar_color: Mutex<(u8, u8, u8, u8)>,
 }
 
 impl DaemonState {
@@ -52,7 +54,9 @@ impl DaemonState {
         Arc::new(Self {
             device: Mutex::new(None),
             update_in_progress: AtomicBool::new(false),
-            active_transform: Mutex::new(InputTransform::default())
+            active_transform: Mutex::new(InputTransform::default()),
+            active_effect: Mutex::new(LightbarEffect::None),
+            lightbar_color: Mutex::new((0, 128, 255, 255))
         })
     }
 }
@@ -97,6 +101,11 @@ pub fn run_daemon() {
     {
         let s = Arc::clone(&state);
         thread::spawn(move || device_connection_loop(s));
+    }
+
+    {
+        let s = Arc::clone(&state);
+        thread::spawn(move || effect_loop(s));
     }
 
     for stream in listener.incoming() {
@@ -188,12 +197,33 @@ fn handle_client(stream: UnixStream, state: Arc<DaemonState>) {
                 send(&mut writer, DaemonResponse::Ok);
             }
 
+            DaemonCommand::SetLightbarEffect { effect } => {
+                let restoring = matches!(effect, LightbarEffect::None);
+                *state.active_effect.lock().unwrap() = effect;
+
+                if restoring {
+                    let (r, g, b, br) = *state.lightbar_color.lock().unwrap();
+                    if let Some(ds) = state.device.lock().unwrap().as_mut() {
+                        let _ = ds.set_lightbar(r, g, b, br);
+                    }
+                }
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
             cmd => {
                 if state.update_in_progress.load(Ordering::Relaxed) {
                     send(&mut writer, DaemonResponse::Error { 
                         message: "Firmware update in progress".to_string()
                     });
                     continue;
+                }
+
+                if let DaemonCommand::SetLightbar { r, g, b, brightness } = &cmd {
+                    *state.lightbar_color.lock().unwrap() = (*r, *g, *b, *brightness);
+                    if !matches!(*state.active_effect.lock().unwrap(), LightbarEffect::None) {
+                        send(&mut writer, DaemonResponse::Ok);
+                        continue;
+                    }
                 }
 
                 let transform = state.active_transform.lock().unwrap().clone();
@@ -214,6 +244,72 @@ fn handle_client(stream: UnixStream, state: Arc<DaemonState>) {
         }
     }
 }
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
+    let c  = v * s;
+    let x  = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m  = v - c;
+    let (r, g, b) = if      h < 60.0  { (c, x, 0.0) }
+                    else if h < 120.0 { (x, c, 0.0) }
+                    else if h < 180.0 { (0.0, c, x) }
+                    else if h < 240.0 { (0.0, x, c) }
+                    else if h < 300.0 { (x, 0.0, c) }
+                    else              { (c, 0.0, x) };
+    (
+        ((r + m) * 255.0) as u8,
+        ((g + m) * 255.0) as u8,
+        ((b + m) * 255.0) as u8,
+    )
+}
+
+fn effect_loop(state: Arc<DaemonState>) {
+    let start = Instant::now();
+    loop {
+        sleep(Duration::from_millis(33));
+
+        let effect = state.active_effect.lock().unwrap().clone();
+        if matches!(effect, LightbarEffect::None) {
+            continue;
+        }
+
+        if state.update_in_progress.load(Ordering::Relaxed) {
+            continue;
+        }
+
+        let t = start.elapsed().as_secs_f32();
+        let (base_r, base_g, base_b, base_br) = *state.lightbar_color.lock().unwrap();
+
+        let (r, g, b) = match effect {
+            LightbarEffect::Breath { speed } => {
+                let factor = ((t * speed * std::f32::consts::TAU).sin() * 0.5 + 0.5).max(0.0);
+                (
+                    (base_r as f32 * factor) as u8,
+                    (base_g as f32 * factor) as u8,
+                    (base_b as f32 * factor) as u8,
+                )
+            }
+            LightbarEffect::Rainbow { speed } => {
+                let hue = (t * speed * 360.0) % 360.0;
+                hsv_to_rgb(hue, 1.0, 1.0)
+            }
+            LightbarEffect::Strobe { speed } => {
+                if (t * speed * 2.0) as u32 % 2 == 0 {
+                    (base_r, base_g, base_b)
+                } else {
+                    (0, 0, 0)
+                }
+            }
+            LightbarEffect::None => unreachable!(),
+        };
+
+        if let Ok(mut dev) = state.device.try_lock() {
+            if let Some(ds) = dev.as_mut() {
+                let _ = ds.set_lightbar(r, g, b, base_br);
+            }
+        }
+    }
+}
+
 
 fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform)
     -> DaemonResponse
@@ -285,6 +381,8 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform)
 
         DaemonCommand::SetVolume { volume } =>
             ok_or_err!(ds.set_volume(volume)),
+
+        DaemonCommand::SetLightbarEffect { .. } => unreachable!(),
 
         DaemonCommand::SetUpdateMode { .. } => unreachable!(),
         DaemonCommand::SetInputTransform { .. } => unreachable!(),

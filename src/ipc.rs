@@ -3,7 +3,7 @@ use std::{env, io::{BufRead, BufReader, Write}, os::unix::net::UnixStream, path:
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{common::MicLedState, dualsense::BatteryInfo, inputs::ControllerState, transform::InputTransform};
+use crate::{common::{LightbarEffect, MicLedState}, dualsense::BatteryInfo, inputs::ControllerState, transform::InputTransform};
 
 pub fn socket_path() -> PathBuf {
     dirs::runtime_dir()
@@ -31,7 +31,8 @@ pub enum DaemonCommand {
     SetVolume { volume: u8 },
     SetUpdateMode { active: bool },
     SetInputTransform { transform: InputTransform },
-    ClearInputTransform
+    ClearInputTransform,
+    SetLightbarEffect { effect: LightbarEffect }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -227,6 +228,14 @@ impl IpcClient {
             DaemonResponse::Ok => Ok(()),
             DaemonResponse::Error { message } => bail!("{}", message),
             _ => Ok(()),
+        }
+    }
+
+    pub fn set_lightbar_effect(&mut self, effect: LightbarEffect) -> Result<()> {
+        match self.request(DaemonCommand::SetLightbarEffect { effect })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(())
         }
     }
 }

@@ -40,3 +40,16 @@ pub enum SpeakerMode {
     Both
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub enum LightbarEffect {
+    None,
+    Breath { speed: f32 },
+    Rainbow { speed: f32 },
+    Strobe { speed: f32 }
+}
+
+impl Default for LightbarEffect {
+    fn default() -> Self {
+        Self::None
+    }
+}

@@ -71,7 +71,9 @@ pub(crate) struct DS4UApp {
     input_poll_stop: Option<Arc<sync::atomic::AtomicBool>>,
 
     pending_connect_since: Option<Instant>,
-    pub(crate) input_transform: InputTransform
+    pub(crate) input_transform: InputTransform,
+
+    pub(crate) lightbar_effect: LightbarEffect,
 }
 
 impl DS4UApp {
@@ -172,7 +174,9 @@ impl DS4UApp {
             input_poll_stop: None,
 
             pending_connect_since: None,
-            input_transform: InputTransform::default()
+            input_transform: InputTransform::default(),
+
+            lightbar_effect: LightbarEffect::None
         };
 
         app.check_for_controller();
@@ -196,7 +200,14 @@ impl DS4UApp {
 
         app
     }
-    
+   
+    pub(crate) fn apply_lightbar_effect(&mut self) {
+        if let Some(ref ipc) = self.ipc.clone() {
+            let _ = ipc.lock().unwrap()
+                .set_lightbar_effect(self.lightbar_effect.clone());
+        }
+    }
+
     pub(crate) fn is_connected(&self) -> bool {
         self.controller.is_some() || self.ipc.is_some()
     }
