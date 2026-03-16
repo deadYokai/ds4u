@@ -1,20 +1,69 @@
-use std::time::Duration;
 use eframe::App;
-use egui::{CentralPanel, Color32, Image, RichText, SidePanel, Ui, include_image};
+use egui::{
+    CentralPanel, Color32, Id, Image, LayerId, RichText, Sense, SidePanel, Ui, include_image, pos2,
+    vec2,
+};
+use std::time::Duration;
 
-use crate::app::{DS4UApp};
+use crate::app::DS4UApp;
 use crate::state::Section;
 use crate::style::apply_style;
+use crate::theme::{self, ThemeColors};
 
 pub mod audio;
 pub mod firmware;
 pub mod haptics;
 pub mod inputs;
 pub mod lightbar;
+pub mod settings;
 pub mod sidebar;
 pub mod sticks;
 pub mod triggers;
-pub mod settings;
+
+fn ambient(ctx: &egui::Context, theme: &theme::Theme) {
+    let screen = ctx.content_rect();
+    let painter = ctx.layer_painter(LayerId::new(egui::Order::Background, Id::new("ambient")));
+
+    painter.rect_filled(screen, 0.0, theme.colors.window_bg());
+
+    let center = pos2(
+        screen.min.x + screen.width() * 0.12,
+        screen.min.y + screen.height() * 0.18,
+    );
+
+    let [ar, ag, ab, _] = theme.colors.accent().to_array();
+
+    for (radius, a) in [(650.0, 7), (400.0, 13), (220.0, 18), (100.0, 15)] {
+        painter.circle_filled(
+            center,
+            radius,
+            Color32::from_rgba_unmultiplied(ar, ag, ab, a),
+        );
+    }
+}
+
+pub(crate) fn title(ui: &mut Ui, title: &str, subtitle: &str, c: &ThemeColors) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(title).size(30.0).color(c.text()));
+        if !subtitle.is_empty() {
+            ui.add_space(6.0);
+            ui.label(RichText::new("|").size(30.0).color(c.text_dim()));
+            ui.add_space(6.0);
+            ui.label(RichText::new(subtitle).size(30.0).color(c.text_dim()));
+        }
+    });
+}
+
+pub(crate) fn label(ui: &mut Ui, text: &str, c: &ThemeColors) {
+    ui.label(RichText::new(text).size(13.0).color(c.text_dim()));
+}
+
+pub(crate) fn sep(ui: &mut Ui, c: &ThemeColors) {
+    ui.add_space(6.0);
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().rect_filled(rect, 0.0, c.widget_inactive());
+    ui.add_space(6.0);
+}
 
 impl DS4UApp {
     fn render_main(&mut self, ui: &mut Ui) {
@@ -22,14 +71,14 @@ impl DS4UApp {
             ui.add_space(30.0);
 
             match self.active_section {
-                Section::Lightbar   => self.render_lightbar_section(ui),
-                Section::Triggers   => self.render_triggers_section(ui),
-                Section::Sticks     => self.render_sticks_section(ui),
-                Section::Haptics    => self.render_haptics_settings(ui),
-                Section::Audio      => self.render_audio_settings(ui),
-                Section::Advanced   => self.render_advanced(ui),
-                Section::Inputs     => self.render_inputs_section(ui),
-                Section::Settings   => self.render_settings_section(ui)
+                Section::Lightbar => self.render_lightbar_section(ui),
+                Section::Triggers => self.render_triggers_section(ui),
+                Section::Sticks => self.render_sticks_section(ui),
+                Section::Haptics => self.render_haptics_settings(ui),
+                Section::Audio => self.render_audio_settings(ui),
+                Section::Advanced => self.render_advanced(ui),
+                Section::Inputs => self.render_inputs_section(ui),
+                Section::Settings => self.render_settings_section(ui),
             }
 
             ui.add_space(30.0);
@@ -50,31 +99,35 @@ impl DS4UApp {
 
             ui.add(controller_pic);
 
-            ui.label(RichText::new("Connect your DualSense Controller")
-                .size(32.0)
-                .color(c.text()));
+            ui.label(
+                RichText::new("Connect your DualSense Controller")
+                    .size(32.0)
+                    .color(c.text()),
+            );
 
             ui.add_space(20.0);
 
-            ui.label(RichText::new("Connect via USB cable or Bluetooth")
-                .size(16.0)
-                .color(c.text_dim()));
+            ui.label(
+                RichText::new("Connect via USB cable or Bluetooth")
+                    .size(16.0)
+                    .color(c.text_dim()),
+            );
 
             ui.add_space(15.0);
 
             ui.horizontal(|ui| {
                 ui.add_space(ui.available_width() / 2.0 - 100.0);
 
-                let spinner = egui::Spinner::new()
-                    .size(16.0)
-                    .color(c.accent());
+                let spinner = egui::Spinner::new().size(16.0).color(c.accent());
 
                 ui.add(spinner);
 
-                ui.label(RichText::new("Searching for controllers...")
-                    .size(14.0)
-                    .color(c.accent()));
-                });
+                ui.label(
+                    RichText::new("Searching for controllers...")
+                        .size(14.0)
+                        .color(c.accent()),
+                );
+            });
         });
     }
 }
@@ -116,6 +169,7 @@ impl App for DS4UApp {
         self.check_firmware_progress();
 
         apply_style(ctx, &self.theme);
+        // ambient(ctx, &self.theme);
 
         SidePanel::left("sidebar")
             .exact_width(280.0)
@@ -137,4 +191,3 @@ impl App for DS4UApp {
         }
     }
 }
-

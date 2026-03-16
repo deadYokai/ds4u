@@ -1,11 +1,11 @@
 use std::{
-    fs, io::{BufRead, BufReader, Write}, os::unix::net::{UnixListener, UnixStream}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread::{self, sleep}, time::{Duration, Instant}
+    fs, io::{BufRead, BufReader, Write}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread::{self, sleep}, time::{Duration, Instant}
 };
 
 use hidapi::HidApi;
 
 use crate::{
-    common::LightbarEffect, dualsense::DualSense, ipc::{socket_path, DaemonCommand, DaemonResponse, IpcClient}, profiles::ProfileManager, settings::SettingsManager, transform::InputTransform
+    common::LightbarEffect, dualsense::DualSense, ipc::{addr_display, bind_daemon, cleanup_endpoint, daemon_endpoint, DaemonCommand, DaemonResponse, DaemonStream, IpcClient}, profiles::ProfileManager, settings::SettingsManager, transform::InputTransform
 };
 
 const TAG: &str = "[ds4u daemon]";
@@ -16,8 +16,8 @@ pub struct DaemonManager {
 
 impl DaemonManager {
     pub fn new() -> Self {
-        let path = socket_path();
-        let client = IpcClient::try_connect(&path)
+        let addr = daemon_endpoint();
+        let client = IpcClient::try_connect(&addr)
             .map(|c| Arc::new(Mutex::new(c)));
         Self { client }
     }
@@ -27,8 +27,8 @@ impl DaemonManager {
     }
 
     pub fn connect_new_client(&self) -> Option<Arc<Mutex<IpcClient>>> {
-        let path = socket_path();
-        IpcClient::try_connect(&path).map(|c| Arc::new(Mutex::new(c)))
+        let addr = daemon_endpoint();
+        IpcClient::try_connect(&addr).map(|c| Arc::new(Mutex::new(c)))
     }
 
     pub fn client(&self) -> Option<Arc<Mutex<IpcClient>>> {
@@ -66,16 +66,14 @@ impl DaemonState {
 }
 
 pub fn run_daemon() {
-    let path = socket_path();
+    let addr = daemon_endpoint();
 
-    if path.exists() {
-        let _ = fs::remove_file(&path);
-    }
-    
-    let listener = UnixListener::bind(&path)
-        .unwrap_or_else(|e| panic!("Cannot bind {}: {}", path.display(), e));
+    cleanup_endpoint(&addr);
+ 
+    let listener = bind_daemon(&addr)
+        .unwrap_or_else(|e| panic!("{} cannot bind {}: {}", TAG, addr_display(&addr), e));
 
-    println!("{} listening on {}", TAG, path.display());
+    println!("{} listening on {}", TAG, addr_display(&addr));
 
     let state = DaemonState::new();
 
@@ -157,7 +155,7 @@ fn device_connection_loop(state: Arc<DaemonState>) {
     }
 }
 
-fn handle_client(stream: UnixStream, state: Arc<DaemonState>) {
+fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
     let write_half = match stream.try_clone() {
         Ok(s) => s,
         Err(_) => return
@@ -166,7 +164,7 @@ fn handle_client(stream: UnixStream, state: Arc<DaemonState>) {
     let mut reader = BufReader::new(stream);
     let mut writer = write_half;
 
-    let send = |w: &mut UnixStream, resp: DaemonResponse| {
+    let send = |w: &mut DaemonStream, resp: DaemonResponse| {
         if let Ok(mut line) = serde_json::to_string(&resp) {
             line.push('\n');
             let _ = w.write_all(line.as_bytes());

@@ -1,14 +1,93 @@
-use std::{env, io::{BufRead, BufReader, Write}, os::unix::net::UnixStream, path::{Path, PathBuf}, time::Duration};
+use std::{env, io::{self, BufRead, BufReader, Write}, path::{Path, PathBuf}, time::Duration};
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{common::{LightbarEffect, MicLedState}, dualsense::BatteryInfo, inputs::ControllerState, transform::InputTransform};
+use crate::{common::{LightbarEffect, MicLedState}, dualsense::BatteryInfo, inputs::ControllerState, transform::{self, InputTransform}};
 
-pub fn socket_path() -> PathBuf {
+#[cfg(unix)]
+mod transport {
+    use std::{io, os::unix::net::{UnixListener, UnixStream}, path::PathBuf, time::Duration};
+
+    pub type Addr = PathBuf;
+    pub type Stream = UnixStream;
+    pub type Listener = UnixListener;
+
+    pub fn connect(addr: &Addr) -> io::Result<Stream> {
+        UnixStream::connect(addr)
+    }
+    pub fn bind(addr: &Addr) -> io::Result<Listener> {
+        UnixListener::bind(addr)
+    }
+    pub fn set_timeout(s: &Stream, d: Duration) -> io::Result<()> {
+        s.set_read_timeout(Some(d))
+    }
+    pub fn addr_to_string(addr: &Addr) -> String {
+        addr.display().to_string()
+    }
+}
+
+#[cfg(not(unix))]
+mod transport {
+    use std::{io, net::{SocketAddr, TcpListener, TcpStream}, time::Duration};
+
+    pub type Addr = SocketAddr;
+    pub type Stream = TcpStream;
+    pub type Listener = TcpListener;
+
+    pub fn connect(addr: &Addr) -> io::Result<Stream> {
+        TcpStream::connect(addr)
+    }
+    pub fn bind(addr: &Addr) -> io::Result<Listener> {
+        TcpListener::bind(addr)
+    }
+    pub fn set_timeout(s: &Stream, d: Duration) -> io::Result<()> {
+        s.set_read_timeout(Some(d))
+    }
+    pub fn addr_to_string(addr: &Addr) -> String {
+        addr.to_string()
+    }
+}
+
+pub type DaemonAddr = transport::Addr;
+pub type DaemonStream = transport::Stream;
+pub type DaemonListener = transport::Listener;
+
+#[cfg(unix)]
+pub fn daemon_endpoint() -> PathBuf {
     dirs::runtime_dir()
         .unwrap_or_else(env::temp_dir)
         .join("ds4u.socket")
+}
+
+#[cfg(not(unix))]
+pub fn daemon_endpoint() -> DaemonAddr {
+    "127.0.0.1:45623".parse().expect("hardcoded addr is valid")
+}
+
+#[inline]
+pub fn socket_path() -> DaemonAddr {
+    daemon_endpoint()
+}
+
+pub fn bind_daemon(addr: &DaemonAddr) -> io::Result<DaemonListener> {
+    transport::bind(addr)
+}
+
+#[cfg(unix)]
+pub fn cleanup_endpoint(addr: &DaemonAddr) {
+    if addr.exists() {
+        use std::fs;
+
+        let _ = fs::remove_file(addr);
+    }
+}
+
+#[cfg(not(unix))]
+pub fn cleanup_endpoint(_addr: &DaemonAddr) {}
+
+pub fn addr_display(addr: &DaemonAddr) -> String {
+    transport::addr_to_string(addr)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -49,26 +128,26 @@ pub enum DaemonResponse {
 }
 
 pub struct IpcClient {
-    pub socket_path: PathBuf,
-    reader: BufReader<UnixStream>,
-    writer: UnixStream
+    pub addr: DaemonAddr,
+    reader: BufReader<DaemonStream>,
+    writer: DaemonStream
 }
 
 impl IpcClient {
-    pub fn connect(path: &Path) -> Result<Self> {
-        let stream = UnixStream::connect(path)?;
-        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    pub fn connect(addr: &DaemonAddr) -> Result<Self> {
+        let stream = transport::connect(addr)?;
+        transport::set_timeout(&stream, Duration::from_secs(5))?;
         let writer = stream.try_clone()?;
 
         Ok(Self{
-            socket_path: path.to_owned(),
+            addr: addr.clone(),
             reader: BufReader::new(stream),
             writer
         })
     }
 
-    pub fn try_connect(path: &Path) -> Option<Self> {
-        let mut c = Self::connect(path).ok()?;
+    pub fn try_connect(addr: &DaemonAddr) -> Option<Self> {
+        let mut c = Self::connect(addr).ok()?;
         c.send(DaemonCommand::Ping).ok()?;
         matches!(c.recv().ok()?, DaemonResponse::Pong).then_some(c)
     }
