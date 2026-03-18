@@ -1,6 +1,6 @@
-use std::io::{Read};
+use std::io::Read;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
 
 use crate::common::*;
@@ -16,48 +16,50 @@ struct FirmwareInfo {
 }
 
 #[derive(Clone)]
-pub struct FirmwareDownloader {
-    client: reqwest::blocking::Client
-}
+pub struct FirmwareDownloader;
 
 impl FirmwareDownloader {
     pub fn new() -> Self {
-        Self { client: reqwest::blocking::Client::new() }
+        Self
     }
 
     pub fn get_latest_version(&self) -> Result<(String, String)> {
         let url = format!("{}info.json", FIRMWARE_BASE_URL);
-        let response = self.client.get(&url).send()?;
-        let info: FirmwareInfo = response.json()?;
+        let info: FirmwareInfo = ureq::get(&url).call()?.body_mut().read_json()?;
 
-        let ds_version = info.dualsense_version
+        let ds_version = info
+            .dualsense_version
             .ok_or(anyhow!("DualSense version not found in info.json"))?;
-        let ds_edge_version = info.dualsense_edge_version
+        let ds_edge_version = info
+            .dualsense_edge_version
             .ok_or(anyhow!("DualSense Edge version not found in info.json"))?;
 
         Ok((ds_version, ds_edge_version))
     }
 
     pub fn download_firmware(
-        &self, pid: u16, version: &str, progress_callback: impl Fn(u32)
+        &self,
+        pid: u16,
+        version: &str,
+        progress_callback: impl Fn(u32),
     ) -> Result<Vec<u8>> {
         let (fw_path, filename) = match pid {
             DS_PID => ("fwupdate0004", "FWUPDATE0004.bin"),
             DSE_PID => ("fwupdate0044", "FWUPDATE0044.bin"),
-            _ => bail!("Unknown product ID")
+            _ => bail!("Unknown product ID"),
         };
 
-        let url = format!("{}{}/{}/{}",
-            FIRMWARE_BASE_URL, fw_path, version, filename);
+        let url = format!("{}{}/{}/{}", FIRMWARE_BASE_URL, fw_path, version, filename);
 
-        let mut response = self.client.get(&url).send()
+        let mut response = ureq::get(&url)
+            .call()
             .map_err(|e| anyhow!("Download failed: {}. Check internet connection.", e))?;
 
         if !response.status().is_success() {
             bail!("Donwload failed with status: {}", response.status());
         }
 
-        let total_size = response.content_length().unwrap_or(FIRMWARE_SIZE as u64);
+        let total_size = FIRMWARE_SIZE as u64;
 
         let mut fw_data = Vec::with_capacity(FIRMWARE_SIZE);
 
@@ -66,8 +68,10 @@ impl FirmwareDownloader {
 
         progress_callback(0);
 
+        let mut reader = response.body_mut().as_reader();
         loop {
-            let bytes_read = response.read(&mut buffer)
+            let bytes_read = reader
+                .read(&mut buffer)
                 .map_err(|e| anyhow!("Download interrupted: {}", e))?;
 
             if bytes_read == 0 {
@@ -82,19 +86,21 @@ impl FirmwareDownloader {
         }
 
         progress_callback(100);
-        
+
         Ok(fw_data)
     }
 
     pub fn download_latest_firmware(
-        &self, pid: u16, progress_callback: impl Fn(u32)
+        &self,
+        pid: u16,
+        progress_callback: impl Fn(u32),
     ) -> Result<Vec<u8>> {
         let (ds_version, ds_edge_version) = self.get_latest_version()?;
 
         let version = match pid {
             DS_PID => ds_version,
             DSE_PID => ds_edge_version,
-            _ => bail!("Unknown product ID")
+            _ => bail!("Unknown product ID"),
         };
 
         self.download_firmware(pid, &version, progress_callback)
@@ -108,4 +114,3 @@ pub fn get_product_name(product_id: u16) -> &'static str {
         _ => "Unknown",
     }
 }
-
