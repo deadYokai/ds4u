@@ -146,19 +146,13 @@ aur-publish:
     - echo "$AUR_SSH_KEY" | base64 -d > ~/.ssh/aur_key
     - chmod 600 ~/.ssh/aur_key
     - ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-    - |
-      cat >> ~/.ssh/config << 'EOF'
-      Host aur.archlinux.org
-        IdentityFile ~/.ssh/aur_key
-        User aur
-      EOF
+    - printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur_key\n  User aur\n' >> ~/.ssh/config
     - git config --global user.email "ci@ds4u"
     - git config --global user.name "DS4U CI"
   script:
     - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
     - TAG="v${PKGVER}"
-
-    - TARBALL_URL="https://github.com/deadYokai/ds4u/archive/refs/tags/${TAG}.tar.gz"
+    - TARBALL_URL="https://gitlab.com/deadYokai/ds4u/-/archive/${TAG}/ds4u-${TAG}.tar.gz"
     - echo "Fetching tarball from $TARBALL_URL to compute sha256..."
     - ACTUAL_SUM=$(curl -sL "$TARBALL_URL" | sha256sum | awk '{print $1}')
     - echo "sha256: $ACTUAL_SUM"
@@ -175,7 +169,6 @@ aur-publish:
     - git add -A
     - git diff --cached --quiet && echo "No changes." || git commit -m "Update to ${TAG}"
     - git push
-
     - cd "$CI_PROJECT_DIR"
     - GITVER=$(printf "r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)")
     - echo "aur-git pkgver: $GITVER"

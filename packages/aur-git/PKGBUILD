@@ -1,6 +1,6 @@
 # Maintainer: deadYokai
 pkgname=ds4u-git
-pkgver=r26.gbfcceb7
+pkgver=r27.ga25f269
 pkgrel=1
 pkgdesc="DualSense 4 You — DualSense controller manager (git)"
 arch=('x86_64')
