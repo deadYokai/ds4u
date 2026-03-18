@@ -26,6 +26,7 @@ lint:
   stage: lint
   tags: [shell]
   script:
+    - rustup default stable
     - cargo fmt --check
     - cargo clippy --release -- -D warnings
   <<: *cargo_cache
@@ -36,6 +37,7 @@ auto-tag:
   stage: auto-tag
   tags: [shell]
   script:
+    - rustup default stable
     - |
       PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
       TAG="v${PKGVER}"
@@ -65,6 +67,7 @@ build-release:
   stage: build
   tags: [shell]
   script:
+    - rustup default stable
     - |
       PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
       cargo build --release --locked
@@ -83,6 +86,7 @@ build-dev:
   stage: build
   tags: [shell]
   script:
+    - rustup default stable
     - cargo build --profile dev-release --features unstable --locked
   <<: *cargo_cache
   rules:
@@ -93,6 +97,7 @@ gitlab-release:
   tags: [shell]
   needs: [build-release]
   script:
+    - rustup default stable
     - |
       PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
       TAG="v${PKGVER}"
@@ -116,6 +121,7 @@ github-push:
   tags: [shell]
   needs: [build-release, gitlab-release]
   script:
+    - rustup default stable
     - |
       PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
       TAG="v${PKGVER}"
@@ -144,6 +150,7 @@ aur-publish:
     - git config --global user.email "ci@ds4u"
     - git config --global user.name "DS4U CI"
   script:
+    - rustup default stable
     - |
       PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
       TAG="v${PKGVER}"
