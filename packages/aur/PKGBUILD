@@ -6,8 +6,8 @@ pkgdesc="DualSense 4 You — DualSense controller manager for Linux"
 arch=('x86_64')
 url="https://gitlab.com/deadYokai/ds4u"
 license=('MIT')
-depends=('hidapi' 'libxkbcommon', 'openssl')
-makedepends=('rust' 'cargo')
+depends=('hidapi' 'libxkbcommon')
+makedepends=('rust' 'cargo' 'clang' 'lld')
 source=("$pkgname-$pkgver.tar.gz::$url/-/archive/v$pkgver/$pkgname-v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
@@ -21,6 +21,9 @@ build() {
     cd "$pkgname-$pkgver"
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
+    export CC=clang
+    export CXX=clang++
+    export RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=lld"
     cargo build --release
 }
 
