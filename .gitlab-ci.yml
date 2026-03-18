@@ -4,9 +4,6 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "api"'
     - if: '$CI_PIPELINE_SOURCE == "trigger"'
 
-default:
-  image: archlinux:latest
-
 variables:
   CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
 
@@ -27,8 +24,7 @@ stages:
 
 lint:
   stage: lint
-  before_script:
-    - pacman -Sy --noconfirm rust
+  tags: [shell]
   script:
     - cargo fmt --check
     - cargo clippy --release -- -D warnings
@@ -38,9 +34,7 @@ lint:
 
 auto-tag:
   stage: auto-tag
-  image: alpine:latest
-  before_script:
-    - apk add --no-cache git curl
+  tags: [shell]
   script:
     - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
     - TAG="v${PKGVER}"
@@ -70,8 +64,7 @@ auto-tag:
 
 build-release:
   stage: build
-  before_script:
-    - pacman -Sy --noconfirm rust
+  tags: [shell]
   script:
     - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
     - cargo build --release --locked
@@ -88,8 +81,7 @@ build-release:
 
 build-dev:
   stage: build
-  before_script:
-    - pacman -Sy --noconfirm rust
+  tags: [shell]
   script:
     - cargo build --profile dev-release --features unstable --locked
   <<: *cargo_cache
@@ -98,23 +90,31 @@ build-dev:
 
 gitlab-release:
   stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  tags: [shell]
   needs: [build-release]
   script:
-    - echo "Creating GitLab release for $CI_COMMIT_TAG"
-  release:
-    tag_name: '$CI_COMMIT_TAG'
-    name: 'DS4U $CI_COMMIT_TAG'
-    description: 'Release $CI_COMMIT_TAG'
+    - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+    - TAG="v${PKGVER}"
+    - |
+      HTTP=$(curl -s -o /tmp/release_resp.json -w "%{http_code}" \
+        -X POST \
+        -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+        -H "Content-Type: application/json" \
+        "$CI_API_V4_URL/projects/$CI_PROJECT_ID/releases" \
+        -d "{\"tag_name\":\"${TAG}\",\"name\":\"DS4U ${TAG}\",\"description\":\"Release ${TAG}\"}")
+      cat /tmp/release_resp.json
+      if [ "$HTTP" != "201" ]; then
+        echo "Failed to create release (HTTP ${HTTP})"
+        exit 1
+      fi
+      echo "GitLab release ${TAG} created."
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
 
 github-push:
   stage: publish
-  image: alpine:latest
+  tags: [shell]
   needs: [build-release, gitlab-release]
-  before_script:
-    - apk add --no-cache git curl jq
   script:
     - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
     - TAG="v${PKGVER}"
@@ -139,14 +139,9 @@ github-push:
 
 aur-publish:
   stage: publish
+  tags: [shell]
   needs: [gitlab-release]
   before_script:
-    - pacman -Sy --noconfirm git openssh curl pacman-contrib
-    - mkdir -p ~/.ssh
-    - echo "$AUR_SSH_KEY" | base64 -d > ~/.ssh/aur_key
-    - chmod 600 ~/.ssh/aur_key
-    - ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-    - printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur_key\n  User aur\n' >> ~/.ssh/config
     - git config --global user.email "ci@ds4u"
     - git config --global user.name "DS4U CI"
   script:
@@ -158,12 +153,7 @@ aur-publish:
     - echo "sha256: $ACTUAL_SUM"
     - git clone ssh://aur@aur.archlinux.org/ds4u.git /tmp/aur-ds4u
     - cp packages/aur/PKGBUILD /tmp/aur-ds4u/PKGBUILD
-    - |
-      sed -i \
-        -e "s/^pkgver=.*/pkgver=${PKGVER}/" \
-        -e "s/^pkgrel=.*/pkgrel=1/" \
-        -e "s/sha256sums=.*/sha256sums=('${ACTUAL_SUM}')/" \
-        /tmp/aur-ds4u/PKGBUILD
+    - sed -i -e "s/^pkgver=.*/pkgver=${PKGVER}/" -e "s/^pkgrel=.*/pkgrel=1/" -e "s/^sha256sums=.*/sha256sums=('${ACTUAL_SUM}')/" /tmp/aur-ds4u/PKGBUILD
     - cd /tmp/aur-ds4u
     - makepkg --printsrcinfo > .SRCINFO
     - git add -A

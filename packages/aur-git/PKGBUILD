@@ -1,12 +1,12 @@
 # Maintainer: deadYokai
 pkgname=ds4u-git
-pkgver=r27.ga25f269
+pkgver=r28.g0416b1c
 pkgrel=1
 pkgdesc="DualSense 4 You — DualSense controller manager (git)"
 arch=('x86_64')
 url="https://gitlab.com/deadYokai/ds4u"
 license=('MIT')
-depends=('hidapi' 'libxkbcommon')
+depends=('hidapi' 'libxkbcommon' 'openssl')
 makedepends=('rust' 'cargo' 'git')
 provides=('ds4u')
 conflicts=('ds4u')
@@ -28,7 +28,7 @@ build() {
     cd "$pkgname"
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
-    cargo build --profile dev-release --features unstable --frozen
+    cargo build --profile dev-release --features unstable
 }
 
 package() {
