@@ -1,8 +1,7 @@
 workflow:
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "web"'
-    - if: '$CI_PIPELINE_SOURCE == "api"'
-    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+    - if: $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" 
+      when: never
 
 variables:
   CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
@@ -36,16 +35,15 @@ auto-tag:
   stage: auto-tag
   tags: [shell]
   script:
-    - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-    - TAG="v${PKGVER}"
-    - echo "Cargo.toml version is ${PKGVER}, checking tag ${TAG}..."
     - |
+      PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+      TAG="v${PKGVER}"
+      echo "Cargo.toml version is ${PKGVER}, checking tag ${TAG}..."
       if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
         echo "Tag ${TAG} already exists — nothing to do."
         exit 0
       fi
-    - echo "Tag ${TAG} not found — creating..."
-    - |
+      echo "Tag ${TAG} not found — creating..."
       HTTP=$(curl -s -o /tmp/tag_resp.json -w "%{http_code}" \
         -X POST \
         -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
@@ -66,11 +64,12 @@ build-release:
   stage: build
   tags: [shell]
   script:
-    - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-    - cargo build --release --locked
-    - mkdir -p dist
-    - cp target/release/ds4u "dist/ds4u-${PKGVER}-x86_64"
-    - sha256sum "dist/ds4u-${PKGVER}-x86_64" > "dist/ds4u-${PKGVER}-x86_64.sha256"
+    - |
+      PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+      cargo build --release --locked
+      mkdir -p dist
+      cp target/release/ds4u "dist/ds4u-${PKGVER}-x86_64"
+      sha256sum "dist/ds4u-${PKGVER}-x86_64" > "dist/ds4u-${PKGVER}-x86_64.sha256"
   artifacts:
     paths:
       - dist/
@@ -93,9 +92,9 @@ gitlab-release:
   tags: [shell]
   needs: [build-release]
   script:
-    - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-    - TAG="v${PKGVER}"
     - |
+      PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+      TAG="v${PKGVER}"
       HTTP=$(curl -s -o /tmp/release_resp.json -w "%{http_code}" \
         -X POST \
         -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
@@ -116,11 +115,11 @@ github-push:
   tags: [shell]
   needs: [build-release, gitlab-release]
   script:
-    - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-    - TAG="v${PKGVER}"
-    - git remote add github "https://x-access-token:${GITHUB_TOKEN}@github.com/deadYokai/ds4u.git" || true
-    - git push github HEAD:main --tags
     - |
+      PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+      TAG="v${PKGVER}"
+      git remote add github "https://x-access-token:${GITHUB_TOKEN}@github.com/deadYokai/ds4u.git" || true
+      git push github HEAD:main --tags
       RELEASE=$(curl -s -X POST \
         -H "Authorization: token $GITHUB_TOKEN" \
         -H "Content-Type: application/json" \
@@ -128,7 +127,6 @@ github-push:
         -d "{\"tag_name\":\"$TAG\",\"name\":\"DS4U $TAG\",\"draft\":false,\"prerelease\":false}")
       RELEASE_ID=$(echo "$RELEASE" | jq -r '.id')
       echo "GitHub release ID: $RELEASE_ID"
-    - |
       curl -s -X POST \
         -H "Authorization: token $GITHUB_TOKEN" \
         -H "Content-Type: application/octet-stream" \
@@ -145,30 +143,38 @@ aur-publish:
     - git config --global user.email "ci@ds4u"
     - git config --global user.name "DS4U CI"
   script:
-    - PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-    - TAG="v${PKGVER}"
-    - TARBALL_URL="https://gitlab.com/deadYokai/ds4u/-/archive/${TAG}/ds4u-${TAG}.tar.gz"
-    - echo "Fetching tarball from $TARBALL_URL to compute sha256..."
-    - ACTUAL_SUM=$(curl -sL "$TARBALL_URL" | sha256sum | awk '{print $1}')
-    - echo "sha256: $ACTUAL_SUM"
-    - git clone ssh://aur@aur.archlinux.org/ds4u.git /tmp/aur-ds4u
-    - cp packages/aur/PKGBUILD /tmp/aur-ds4u/PKGBUILD
-    - sed -i -e "s/^pkgver=.*/pkgver=${PKGVER}/" -e "s/^pkgrel=.*/pkgrel=1/" -e "s/^sha256sums=.*/sha256sums=('${ACTUAL_SUM}')/" /tmp/aur-ds4u/PKGBUILD
-    - cd /tmp/aur-ds4u
-    - makepkg --printsrcinfo > .SRCINFO
-    - git add -A
-    - git diff --cached --quiet && echo "No changes." || git commit -m "Update to ${TAG}"
-    - git push
-    - cd "$CI_PROJECT_DIR"
-    - GITVER=$(printf "r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)")
-    - echo "aur-git pkgver: $GITVER"
-    - git clone ssh://aur@aur.archlinux.org/ds4u-git.git /tmp/aur-ds4u-git
-    - cp packages/aur-git/PKGBUILD /tmp/aur-ds4u-git/PKGBUILD
-    - sed -i "s/^pkgver=.*/pkgver=${GITVER}/" /tmp/aur-ds4u-git/PKGBUILD
-    - cd /tmp/aur-ds4u-git
-    - makepkg --printsrcinfo > .SRCINFO
-    - git add -A
-    - git diff --cached --quiet && echo "No changes." || git commit -m "Track ${TAG} (${GITVER})"
-    - git push
+    - |
+      PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+      TAG="v${PKGVER}"
+      TARBALL_URL="https://gitlab.com/deadYokai/ds4u/-/archive/${TAG}/ds4u-${TAG}.tar.gz"
+      echo "Fetching tarball from $TARBALL_URL to compute sha256..."
+      ACTUAL_SUM=$(curl -sL "$TARBALL_URL" | sha256sum | awk '{print $1}')
+      echo "sha256: $ACTUAL_SUM"
+      git clone ssh://aur@aur.archlinux.org/ds4u.git /tmp/aur-ds4u
+      cp packages/aur/PKGBUILD /tmp/aur-ds4u/PKGBUILD
+      sed -i \
+        -e "s/^pkgver=.*/pkgver=${PKGVER}/" \
+        -e "s/^pkgrel=.*/pkgrel=1/" \
+        -e "s/^sha256sums=.*/sha256sums=('${ACTUAL_SUM}')/" \
+        /tmp/aur-ds4u/PKGBUILD
+      cd /tmp/aur-ds4u
+      makepkg --printsrcinfo > .SRCINFO
+      git add -A
+      git diff --cached --quiet && echo "No changes." || git commit -m "Update to ${TAG}"
+      git push
+    - |
+      cd "$CI_PROJECT_DIR"
+      GITVER=$(printf "r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)")
+      echo "aur-git pkgver: $GITVER"
+      PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+      TAG="v${PKGVER}"
+      git clone ssh://aur@aur.archlinux.org/ds4u-git.git /tmp/aur-ds4u-git
+      cp packages/aur-git/PKGBUILD /tmp/aur-ds4u-git/PKGBUILD
+      sed -i "s/^pkgver=.*/pkgver=${GITVER}/" /tmp/aur-ds4u-git/PKGBUILD
+      cd /tmp/aur-ds4u-git
+      makepkg --printsrcinfo > .SRCINFO
+      git add -A
+      git diff --cached --quiet && echo "No changes." || git commit -m "Track ${TAG} (${GITVER})"
+      git push
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
