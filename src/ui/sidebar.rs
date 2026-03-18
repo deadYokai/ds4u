@@ -149,8 +149,11 @@ impl DS4UApp {
 
             self.render_nav_btn(ui, "Inputs", Section::Inputs);
             self.render_nav_btn(ui, "Lightbar", Section::Lightbar);
+            #[cfg(feature = "unstable")]
             self.render_nav_btn(ui, "Triggers", Section::Triggers);
+            #[cfg(feature = "unstable")]
             self.render_nav_btn(ui, "Sticks", Section::Sticks);
+            #[cfg(feature = "unstable")]
             self.render_nav_btn(ui, "Haptics", Section::Haptics);
             self.render_nav_btn(ui, "Audio", Section::Audio);
             self.render_nav_btn(ui, "Advanced", Section::Advanced);
