@@ -60,7 +60,7 @@ auto-tag:
       fi
       echo "Tag ${TAG} created."
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "master"'
 
 build-release:
   stage: build
