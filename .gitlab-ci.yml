@@ -69,7 +69,7 @@ build-release:
     - rustup default stable
     - |
       PKGVER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-      cargo build --release --locked
+      cargo build --release
       mkdir -p dist
       cp target/release/ds4u "dist/ds4u-${PKGVER}-x86_64"
       sha256sum "dist/ds4u-${PKGVER}-x86_64" > "dist/ds4u-${PKGVER}-x86_64.sha256"
@@ -86,7 +86,7 @@ build-dev:
   tags: [shell]
   script:
     - rustup default stable
-    - cargo build --profile dev-release --features unstable --locked
+    - cargo build --profile dev-release --features unstable
   <<: *cargo_cache
   rules:
     - if: '$CI_COMMIT_TAG == null'
