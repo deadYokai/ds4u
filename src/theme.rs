@@ -15,46 +15,81 @@ pub struct ThemeColors {
     pub text_dim: [u8; 3],
     pub success: [u8; 3],
     pub error: [u8; 3],
-    pub warning: [u8; 3]
+    pub warning: [u8; 3],
 }
 
 impl ThemeColors {
-    #[inline] pub fn window_bg(&self) -> Color32 { c(self.window_bg) }
-    #[inline] pub fn panel_bg(&self) -> Color32 { c(self.panel_bg) }
-    #[inline] pub fn extreme_bg(&self) -> Color32 { c(self.extreme_bg) }
-    #[inline] pub fn accent(&self) -> Color32 { c(self.accent) }
-    #[inline] pub fn widget_hovered(&self) -> Color32 { c(self.widget_hovered) }
-    #[inline] pub fn widget_inactive(&self) -> Color32 { c(self.widget_inactive) }
-    #[inline] pub fn text(&self) -> Color32 { c(self.text) }
-    #[inline] pub fn text_dim(&self) -> Color32 { c(self.text_dim) }
-    #[inline] pub fn success(&self) -> Color32 { c(self.success) }
-    #[inline] pub fn error(&self) -> Color32 { c(self.error) }
-    #[inline] pub fn warning(&self) -> Color32 { c(self.warning) }
+    #[inline]
+    pub fn window_bg(&self) -> Color32 {
+        c(self.window_bg)
+    }
+    #[inline]
+    pub fn panel_bg(&self) -> Color32 {
+        c(self.panel_bg)
+    }
+    #[inline]
+    pub fn extreme_bg(&self) -> Color32 {
+        c(self.extreme_bg)
+    }
+    #[inline]
+    pub fn accent(&self) -> Color32 {
+        c(self.accent)
+    }
+    #[inline]
+    pub fn widget_hovered(&self) -> Color32 {
+        c(self.widget_hovered)
+    }
+    #[inline]
+    pub fn widget_inactive(&self) -> Color32 {
+        c(self.widget_inactive)
+    }
+    #[inline]
+    pub fn text(&self) -> Color32 {
+        c(self.text)
+    }
+    #[inline]
+    pub fn text_dim(&self) -> Color32 {
+        c(self.text_dim)
+    }
+    #[inline]
+    pub fn success(&self) -> Color32 {
+        c(self.success)
+    }
+    #[inline]
+    pub fn error(&self) -> Color32 {
+        c(self.error)
+    }
+    #[inline]
+    pub fn warning(&self) -> Color32 {
+        c(self.warning)
+    }
 }
 
-#[inline] fn c([r, g, b]: [u8; 3]) -> Color32 { Color32::from_rgb(r, g, b) }
+#[inline]
+fn c([r, g, b]: [u8; 3]) -> Color32 {
+    Color32::from_rgb(r, g, b)
+}
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Theme {
     pub id: String,
     pub name: String,
     pub dark_mode: bool,
-    pub colors: ThemeColors
+    pub colors: ThemeColors,
 }
 
 pub fn builtin_themes() -> Vec<Theme> {
-    vec![
-        default(),
-        deep_dark(),
-        tokyo_night()
-    ]
+    vec![default(), deep_dark(), tokyo_night()]
 }
 
-pub fn default_theme() -> Theme { default() }
+pub fn default_theme() -> Theme {
+    default()
+}
 
 pub fn theme_by_id(id: &str) -> Theme {
     builtin_themes()
-        .into_iter().find(|t| t.id == id)
+        .into_iter()
+        .find(|t| t.id == id)
         .unwrap_or_else(default_theme)
 }
 
@@ -64,17 +99,17 @@ pub fn default() -> Theme {
         dark_mode: true,
         name: "Default".into(),
         colors: ThemeColors {
-            window_bg:       [12,  18,  28 ],
-            panel_bg:        [16,  24,  36 ],
-            extreme_bg:      [8,   12,  20 ],
-            accent:          [0,   122, 250],
-            widget_hovered:  [40,  60,  90 ],
-            widget_inactive: [30,  45,  70 ],
-            text:            [240, 240, 250],
-            text_dim:        [140, 150, 170],
-            success:         [0,   200, 100],
-            error:           [255, 80,  80 ],
-            warning:         [255, 185, 0  ],
+            window_bg: [12, 18, 28],
+            panel_bg: [16, 24, 36],
+            extreme_bg: [8, 12, 20],
+            accent: [0, 122, 250],
+            widget_hovered: [40, 60, 90],
+            widget_inactive: [30, 45, 70],
+            text: [240, 240, 250],
+            text_dim: [140, 150, 170],
+            success: [0, 200, 100],
+            error: [255, 80, 80],
+            warning: [255, 185, 0],
         },
     }
 }
@@ -85,17 +120,17 @@ pub fn deep_dark() -> Theme {
         dark_mode: true,
         name: "Deep Dark".into(),
         colors: ThemeColors {
-            window_bg:       [0,   0,   0  ],
-            panel_bg:        [8,   8,   8  ],
-            extreme_bg:      [0,   0,   0  ],
-            accent:          [0,   122, 255],
-            widget_hovered:  [30,  30,  40 ],
-            widget_inactive: [20,  20,  28 ],
-            text:            [245, 245, 255],
-            text_dim:        [120, 120, 140],
-            success:         [30,  215, 96 ],
-            error:           [255, 69,  58 ],
-            warning:         [255, 160, 0  ],
+            window_bg: [0, 0, 0],
+            panel_bg: [8, 8, 8],
+            extreme_bg: [0, 0, 0],
+            accent: [0, 122, 255],
+            widget_hovered: [30, 30, 40],
+            widget_inactive: [20, 20, 28],
+            text: [245, 245, 255],
+            text_dim: [120, 120, 140],
+            success: [30, 215, 96],
+            error: [255, 69, 58],
+            warning: [255, 160, 0],
         },
     }
 }
@@ -106,34 +141,37 @@ pub fn tokyo_night() -> Theme {
         dark_mode: true,
         name: "Tokyo Night".into(),
         colors: ThemeColors {
-            window_bg:       [26,  27,  38 ],  // bg
-            panel_bg:        [22,  22,  30 ],  // bg_dark
-            extreme_bg:      [16,  16,  24 ],  // bg_darker
-            accent:          [122, 162, 247],  // blue
-            widget_hovered:  [41,  46,  66 ],  // bg_highlight
-            widget_inactive: [32,  36,  54 ],  // bg_visual
-            text:            [192, 202, 245],  // fg
-            text_dim:        [86,  95,  137],  // comment
-            success:         [158, 206, 106],  // green
-            error:           [247, 118, 142],  // red
-            warning:         [224, 175, 104],  // orange
+            window_bg: [26, 27, 38],       // bg
+            panel_bg: [22, 22, 30],        // bg_dark
+            extreme_bg: [16, 16, 24],      // bg_darker
+            accent: [122, 162, 247],       // blue
+            widget_hovered: [41, 46, 66],  // bg_highlight
+            widget_inactive: [32, 36, 54], // bg_visual
+            text: [192, 202, 245],         // fg
+            text_dim: [86, 95, 137],       // comment
+            success: [158, 206, 106],      // green
+            error: [247, 118, 142],        // red
+            warning: [224, 175, 104],      // orange
         },
     }
 }
 
 pub struct ThemeManager {
     dir: PathBuf,
-    cache: Vec<Theme>
+    cache: Vec<Theme>,
 }
 
 impl ThemeManager {
     pub fn new() -> Self {
-        let dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."))
-            .join("ds4u").join("themes");
+        let dir = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("ds4u")
+            .join("themes");
 
         let _ = fs::create_dir_all(&dir);
         let mut mgr = Self {
-            dir, cache: Vec::new()
+            dir,
+            cache: Vec::new(),
         };
         mgr.reload();
         mgr
@@ -154,7 +192,9 @@ impl ThemeManager {
             return t;
         }
 
-        builtin_themes().into_iter().find(|t| t.id == id)
+        builtin_themes()
+            .into_iter()
+            .find(|t| t.id == id)
             .unwrap_or_else(default_theme)
     }
 
@@ -172,7 +212,9 @@ impl ThemeManager {
     pub fn scan(&self) -> Vec<Theme> {
         let mut themes = builtin_themes();
 
-        let Ok(entries) = fs::read_dir(&self.dir) else { return themes };
+        let Ok(entries) = fs::read_dir(&self.dir) else {
+            return themes;
+        };
 
         for e in entries.flatten() {
             let path = e.path();
@@ -181,8 +223,12 @@ impl ThemeManager {
                 continue;
             }
 
-            let Ok(json) = fs::read_to_string(&path) else { continue };
-            let Ok(t) = serde_json::from_str::<Theme>(&json) else { continue };
+            let Ok(json) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(t) = serde_json::from_str::<Theme>(&json) else {
+                continue;
+            };
 
             if let Some(existing) = themes.iter_mut().find(|e| e.id == t.id) {
                 *existing = t;
@@ -194,4 +240,3 @@ impl ThemeManager {
         themes
     }
 }
-

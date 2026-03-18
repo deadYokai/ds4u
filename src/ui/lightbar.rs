@@ -10,9 +10,11 @@ impl DS4UApp {
 
         let c = self.theme.colors.clone();
 
-        ui.label(RichText::new("Customize your controller lights")
-            .size(14.0)
-            .color(c.text_dim()));
+        ui.label(
+            RichText::new("Customize your controller lights")
+                .size(14.0)
+                .color(c.text_dim()),
+        );
 
         ui.add_space(20.0);
 
@@ -42,13 +44,13 @@ impl DS4UApp {
                 ("Red", 1.0, 0.0, 0.0),
                 ("Green", 0.0, 1.0, 0.0),
                 ("Purple", 0.8, 0.0, 1.0),
-                ("White", 1.0, 1.0, 1.0)
+                ("White", 1.0, 1.0, 1.0),
             ] {
                 let color_btn = Button::new(" ")
                     .fill(Color32::from_rgb(
-                            (r * 255.0) as u8,
-                            (g * 255.0) as u8,
-                            (b * 255.0) as u8
+                        (r * 255.0) as u8,
+                        (g * 255.0) as u8,
+                        (b * 255.0) as u8,
                     ))
                     .min_size(vec2(32.0, 32.0));
 
@@ -69,13 +71,22 @@ impl DS4UApp {
 
             ui.add_space(20.0);
 
-            if ui.add(Slider::new(&mut self.lightbar.brightness, 0.0..=255.0)
-                .text("").show_value(false)).changed() {
+            if ui
+                .add(
+                    Slider::new(&mut self.lightbar.brightness, 0.0..=255.0)
+                        .text("")
+                        .show_value(false),
+                )
+                .changed()
+            {
                 self.apply_lightbar();
                 self.sync_profile();
             }
 
-            ui.label(format!("{}%", (self.lightbar.brightness / 255.0 * 100.0) as u8));
+            ui.label(format!(
+                "{}%",
+                (self.lightbar.brightness / 255.0 * 100.0) as u8
+            ));
         });
 
         if self.ipc.is_some() {
@@ -85,43 +96,56 @@ impl DS4UApp {
 
             ui.label(RichText::new("LED Effects").size(16.0).strong());
             ui.add_space(4.0);
-            ui.label(RichText::new("Animated effects (daemon only)").size(12.0).color(c.text_dim()));
+            ui.label(
+                RichText::new("Animated effects (daemon only)")
+                    .size(12.0)
+                    .color(c.text_dim()),
+            );
             ui.add_space(15.0);
 
             ui.horizontal(|ui| {
-                let none_active    = matches!(self.lightbar_effect, LightbarEffect::None);
+                let none_active = matches!(self.lightbar_effect, LightbarEffect::None);
                 let breathe_active = matches!(self.lightbar_effect, LightbarEffect::Breath { .. });
                 let rainbow_active = matches!(self.lightbar_effect, LightbarEffect::Rainbow { .. });
-                let strobe_active  = matches!(self.lightbar_effect, LightbarEffect::Strobe  { .. });
+                let strobe_active = matches!(self.lightbar_effect, LightbarEffect::Strobe { .. });
 
                 let btn = |ui: &mut egui::Ui, label: &str, active: bool, accent: egui::Color32| {
                     ui.add(
                         Button::new(RichText::new(label).size(14.0))
-                        .fill(if active { accent } else { c.widget_inactive() })
-                        .min_size(vec2(90.0, 36.0))
+                            .fill(if active { accent } else { c.widget_inactive() })
+                            .min_size(vec2(90.0, 36.0)),
                     )
                 };
 
-                if btn(ui, "Static",  none_active,    c.accent()).clicked() && !none_active {
+                if btn(ui, "Static", none_active, c.accent()).clicked() && !none_active {
                     self.lightbar_effect = LightbarEffect::None;
                     self.apply_lightbar_effect();
                     self.apply_lightbar();
                 }
                 if btn(ui, "Breathe", breathe_active, c.accent()).clicked() && !breathe_active {
-                    let speed = if let LightbarEffect::Breath { speed } = self.lightbar_effect
-                    { speed } else { 0.4 };
+                    let speed = if let LightbarEffect::Breath { speed } = self.lightbar_effect {
+                        speed
+                    } else {
+                        0.4
+                    };
                     self.lightbar_effect = LightbarEffect::Breath { speed };
                     self.apply_lightbar_effect();
                 }
                 if btn(ui, "Rainbow", rainbow_active, c.accent()).clicked() && !rainbow_active {
-                    let speed = if let LightbarEffect::Rainbow { speed } = self.lightbar_effect
-                    { speed } else { 0.15 };
+                    let speed = if let LightbarEffect::Rainbow { speed } = self.lightbar_effect {
+                        speed
+                    } else {
+                        0.15
+                    };
                     self.lightbar_effect = LightbarEffect::Rainbow { speed };
                     self.apply_lightbar_effect();
                 }
-                if btn(ui, "Strobe",  strobe_active,  c.accent()).clicked() && !strobe_active {
-                    let speed = if let LightbarEffect::Strobe { speed } = self.lightbar_effect
-                    { speed } else { 4.0 };
+                if btn(ui, "Strobe", strobe_active, c.accent()).clicked() && !strobe_active {
+                    let speed = if let LightbarEffect::Strobe { speed } = self.lightbar_effect {
+                        speed
+                    } else {
+                        4.0
+                    };
                     self.lightbar_effect = LightbarEffect::Strobe { speed };
                     self.apply_lightbar_effect();
                 }
@@ -136,10 +160,16 @@ impl DS4UApp {
                     let mut changed = false;
                     ui.horizontal(|ui| {
                         ui.label("Speed:");
-                        changed = ui.add(Slider::new(speed, 0.1..=3.0).text("").show_value(false))
+                        changed = ui
+                            .add(Slider::new(speed, 0.1..=3.0).text("").show_value(false))
                             .changed();
-                        let label = if *speed < 0.5 { "slow" }
-                        else if *speed < 1.5 { "medium" } else { "fast" };
+                        let label = if *speed < 0.5 {
+                            "slow"
+                        } else if *speed < 1.5 {
+                            "medium"
+                        } else {
+                            "fast"
+                        };
                         ui.label(label);
                     });
                     changed
@@ -149,10 +179,16 @@ impl DS4UApp {
                     let mut changed = false;
                     ui.horizontal(|ui| {
                         ui.label("Speed:");
-                        changed = ui.add(Slider::new(speed, 0.05..=1.0).text("").show_value(false))
+                        changed = ui
+                            .add(Slider::new(speed, 0.05..=1.0).text("").show_value(false))
                             .changed();
-                        let label = if *speed < 0.2 { "slow" }
-                        else if *speed < 0.5 { "medium" } else { "fast" };
+                        let label = if *speed < 0.2 {
+                            "slow"
+                        } else if *speed < 0.5 {
+                            "medium"
+                        } else {
+                            "fast"
+                        };
                         ui.label(label);
                     });
                     changed
@@ -162,22 +198,20 @@ impl DS4UApp {
                     let mut changed = false;
                     ui.horizontal(|ui| {
                         ui.label("Speed:");
-                        changed = ui.add(Slider::new(speed, 1.0..=20.0).text("").show_value(false))
+                        changed = ui
+                            .add(Slider::new(speed, 1.0..=20.0).text("").show_value(false))
                             .changed();
                         ui.label(format!("{:.0} Hz", speed));
                     });
                     changed
                 }
-
             };
 
             if effect_changed {
                 self.lightbar_effect = effect_clone;
                 self.apply_lightbar_effect();
             }
-
         }
-
 
         ui.add_space(30.0);
         ui.separator();
@@ -194,7 +228,8 @@ impl DS4UApp {
                         c.accent()
                     } else {
                         c.widget_inactive()
-                    }).min_size(vec2(48.0, 48.0));
+                    })
+                    .min_size(vec2(48.0, 48.0));
 
                 if ui.add(btn).clicked() {
                     self.player_leds = i;
@@ -205,4 +240,3 @@ impl DS4UApp {
         });
     }
 }
-

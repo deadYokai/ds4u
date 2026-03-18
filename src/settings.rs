@@ -5,23 +5,28 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub theme_id: String,
-    pub profile: String
+    pub profile: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme_id: "default".into(), profile: String::new() }
+        Self {
+            theme_id: "default".into(),
+            profile: String::new(),
+        }
     }
 }
 
 pub struct SettingsManager {
-    path: PathBuf
+    path: PathBuf,
 }
 
 impl SettingsManager {
     pub fn new() -> Self {
-        let path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."))
-            .join("ds4u").join("settings.json");
+        let path = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("ds4u")
+            .join("settings.json");
 
         Self { path }
     }

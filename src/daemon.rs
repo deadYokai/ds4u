@@ -1,11 +1,26 @@
 use std::{
-    fs, io::{BufRead, BufReader, Write}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread::{self, sleep}, time::{Duration, Instant}
+    fs,
+    io::{BufRead, BufReader, Write},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, sleep},
+    time::{Duration, Instant},
 };
 
 use hidapi::HidApi;
 
 use crate::{
-    common::LightbarEffect, dualsense::DualSense, ipc::{addr_display, bind_daemon, cleanup_endpoint, daemon_endpoint, DaemonCommand, DaemonResponse, DaemonStream, IpcClient}, profiles::ProfileManager, settings::SettingsManager, transform::InputTransform
+    common::LightbarEffect,
+    dualsense::DualSense,
+    ipc::{
+        DaemonCommand, DaemonResponse, DaemonStream, IpcClient, addr_display, bind_daemon,
+        cleanup_endpoint, daemon_endpoint,
+    },
+    profiles::ProfileManager,
+    settings::SettingsManager,
+    transform::InputTransform,
 };
 
 const TAG: &str = "[ds4u daemon]";
@@ -17,8 +32,7 @@ pub struct DaemonManager {
 impl DaemonManager {
     pub fn new() -> Self {
         let addr = daemon_endpoint();
-        let client = IpcClient::try_connect(&addr)
-            .map(|c| Arc::new(Mutex::new(c)));
+        let client = IpcClient::try_connect(&addr).map(|c| Arc::new(Mutex::new(c)));
         Self { client }
     }
 
@@ -69,7 +83,7 @@ pub fn run_daemon() {
     let addr = daemon_endpoint();
 
     cleanup_endpoint(&addr);
- 
+
     let listener = bind_daemon(&addr)
         .unwrap_or_else(|e| panic!("{} cannot bind {}: {}", TAG, addr_display(&addr), e));
 
@@ -96,10 +110,10 @@ pub fn run_daemon() {
 
         if let Some(p) = profile {
             *state.active_transform.lock().unwrap() = p.to_input_transform();
-            let r  = (p.lightbar_r          * 255.0) as u8;
-            let g  = (p.lightbar_g          * 255.0) as u8;
-            let b  = (p.lightbar_b          * 255.0) as u8;
-            let br = p.lightbar_brightness  as u8;
+            let r = (p.lightbar_r * 255.0) as u8;
+            let g = (p.lightbar_g * 255.0) as u8;
+            let b = (p.lightbar_b * 255.0) as u8;
+            let br = p.lightbar_brightness as u8;
             *state.lightbar_color.lock().unwrap() = (r, g, b, br);
             *state.player_leds.lock().unwrap() = p.player_leds;
             *state.mic_enabled.lock().unwrap() = p.mic_enabled;
@@ -123,10 +137,9 @@ pub fn run_daemon() {
                 let state = Arc::clone(&state);
                 thread::spawn(move || handle_client(s, state));
             }
-            Err(e) => eprintln!("{} accept error: {}", TAG, e)
+            Err(e) => eprintln!("{} accept error: {}", TAG, e),
         }
     }
-
 }
 
 fn device_connection_loop(state: Arc<DaemonState>) {
@@ -135,20 +148,20 @@ fn device_connection_loop(state: Arc<DaemonState>) {
             let mut dev = state.device.lock().unwrap();
             if dev.is_none()
                 && let Ok(api) = HidApi::new()
-                && let Ok(mut ds) = DualSense::new(&api, None) 
+                && let Ok(mut ds) = DualSense::new(&api, None)
             {
-                    println!("{} controller connected: {}", TAG, ds.serial());
+                println!("{} controller connected: {}", TAG, ds.serial());
 
-                    let (r, g, b, br) = *state.lightbar_color.lock().unwrap();
-                    let _ = ds.set_lightbar(r, g, b, br);
+                let (r, g, b, br) = *state.lightbar_color.lock().unwrap();
+                let _ = ds.set_lightbar(r, g, b, br);
 
-                    let leds = *state.player_leds.lock().unwrap();
-                    let _ = ds.set_player_leds(leds);
+                let leds = *state.player_leds.lock().unwrap();
+                let _ = ds.set_player_leds(leds);
 
-                    let mic = *state.mic_enabled.lock().unwrap();
-                    let _ = ds.set_mic(mic);
+                let mic = *state.mic_enabled.lock().unwrap();
+                let _ = ds.set_mic(mic);
 
-                    *dev = Some(ds);
+                *dev = Some(ds);
             }
         }
         sleep(Duration::from_secs(2));
@@ -158,7 +171,7 @@ fn device_connection_loop(state: Arc<DaemonState>) {
 fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
     let write_half = match stream.try_clone() {
         Ok(s) => s,
-        Err(_) => return
+        Err(_) => return,
     };
 
     let mut reader = BufReader::new(stream);
@@ -182,13 +195,20 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
         let cmd: DaemonCommand = match serde_json::from_str(line.trim()) {
             Ok(c) => c,
             Err(e) => {
-                send(&mut writer, DaemonResponse::Error { message: e.to_string() });
+                send(
+                    &mut writer,
+                    DaemonResponse::Error {
+                        message: e.to_string(),
+                    },
+                );
                 continue;
             }
         };
 
         match cmd {
-            DaemonCommand::Ping => { send(&mut writer, DaemonResponse::Pong); }
+            DaemonCommand::Ping => {
+                send(&mut writer, DaemonResponse::Pong);
+            }
 
             DaemonCommand::SetUpdateMode { active } => {
                 if active {
@@ -227,13 +247,22 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
 
             cmd => {
                 if state.update_in_progress.load(Ordering::Relaxed) {
-                    send(&mut writer, DaemonResponse::Error { 
-                        message: "Firmware update in progress".to_string()
-                    });
+                    send(
+                        &mut writer,
+                        DaemonResponse::Error {
+                            message: "Firmware update in progress".to_string(),
+                        },
+                    );
                     continue;
                 }
 
-                if let DaemonCommand::SetLightbar { r, g, b, brightness } = &cmd {
+                if let DaemonCommand::SetLightbar {
+                    r,
+                    g,
+                    b,
+                    brightness,
+                } = &cmd
+                {
                     *state.lightbar_color.lock().unwrap() = (*r, *g, *b, *brightness);
                     if !matches!(*state.active_effect.lock().unwrap(), LightbarEffect::None) {
                         send(&mut writer, DaemonResponse::Ok);
@@ -261,15 +290,22 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
 }
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
-    let c  = v * s;
-    let x  = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
-    let m  = v - c;
-    let (r, g, b) = if      h < 60.0  { (c, x, 0.0) }
-    else if h < 120.0 { (x, c, 0.0) }
-    else if h < 180.0 { (0.0, c, x) }
-    else if h < 240.0 { (0.0, x, c) }
-    else if h < 300.0 { (x, 0.0, c) }
-    else              { (c, 0.0, x) };
+    let c = v * s;
+    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = v - c;
+    let (r, g, b) = if h < 60.0 {
+        (c, x, 0.0)
+    } else if h < 120.0 {
+        (x, c, 0.0)
+    } else if h < 180.0 {
+        (0.0, c, x)
+    } else if h < 240.0 {
+        (0.0, x, c)
+    } else if h < 300.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
     (
         ((r + m) * 255.0) as u8,
         ((g + m) * 255.0) as u8,
@@ -317,7 +353,7 @@ fn effect_loop(state: Arc<DaemonState>) {
             LightbarEffect::None => unreachable!(),
         };
 
-        if let Ok(mut dev) = state.device.try_lock() 
+        if let Ok(mut dev) = state.device.try_lock()
             && let Some(ds) = dev.as_mut()
         {
             let _ = ds.set_lightbar(r, g, b, base_br);
@@ -325,15 +361,14 @@ fn effect_loop(state: Arc<DaemonState>) {
     }
 }
 
-
-fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform)
-    -> DaemonResponse
-{
+fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform) -> DaemonResponse {
     macro_rules! ok_or_err {
         ($e:expr) => {
             match $e {
-                Ok(_)  => DaemonResponse::Ok,
-                Err(e) => DaemonResponse::Error { message: e.to_string() },
+                Ok(_) => DaemonResponse::Ok,
+                Err(e) => DaemonResponse::Error {
+                    message: e.to_string(),
+                },
             }
         };
     }
@@ -342,8 +377,10 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform)
         DaemonCommand::Ping => DaemonResponse::Pong,
 
         DaemonCommand::GetBattery => match ds.get_battery() {
-            Ok(b)  => DaemonResponse::Battery(b),
-            Err(e) => DaemonResponse::Error { message: e.to_string() }
+            Ok(b) => DaemonResponse::Battery(b),
+            Err(e) => DaemonResponse::Error {
+                message: e.to_string(),
+            },
         },
 
         DaemonCommand::GetInputState => match ds.get_input_state() {
@@ -351,57 +388,66 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform)
                 transform.apply(&mut s);
                 DaemonResponse::InputState(s)
             }
-            Err(e) => DaemonResponse::Error { message: e.to_string() },
+            Err(e) => DaemonResponse::Error {
+                message: e.to_string(),
+            },
         },
 
         DaemonCommand::GetFirmwareInfo => match ds.get_firmware_info() {
             Ok((v, d, t)) => DaemonResponse::FirmwareInfo {
-                version: v, build_date: d, build_time: t,
+                version: v,
+                build_date: d,
+                build_time: t,
             },
-            Err(e) => DaemonResponse::Error { message: e.to_string() },
+            Err(e) => DaemonResponse::Error {
+                message: e.to_string(),
+            },
         },
 
         DaemonCommand::GetControllerInfo => DaemonResponse::ControllerInfo {
             serial: ds.serial().to_string(),
             product_id: ds.product_id(),
-            is_bt: ds.is_bluetooth()
+            is_bt: ds.is_bluetooth(),
         },
 
-        DaemonCommand::SetLightbar { r, g, b, brightness } =>
-            ok_or_err!(ds.set_lightbar(r, g, b, brightness)),
+        DaemonCommand::SetLightbar {
+            r,
+            g,
+            b,
+            brightness,
+        } => ok_or_err!(ds.set_lightbar(r, g, b, brightness)),
 
-            DaemonCommand::SetLightbarEnabled { enabled } =>
-                ok_or_err!(ds.set_lightbar_enabled(enabled)),
+        DaemonCommand::SetLightbarEnabled { enabled } => {
+            ok_or_err!(ds.set_lightbar_enabled(enabled))
+        }
 
-                DaemonCommand::SetPlayerLeds { leds } =>
-                    ok_or_err!(ds.set_player_leds(leds)),
+        DaemonCommand::SetPlayerLeds { leds } => ok_or_err!(ds.set_player_leds(leds)),
 
-                    DaemonCommand::SetMic { enabled } =>
-                        ok_or_err!(ds.set_mic(enabled)),
+        DaemonCommand::SetMic { enabled } => ok_or_err!(ds.set_mic(enabled)),
 
-                        DaemonCommand::SetMicLed { state } =>
-                            ok_or_err!(ds.set_mic_led(state)),
+        DaemonCommand::SetMicLed { state } => ok_or_err!(ds.set_mic_led(state)),
 
-                        DaemonCommand::SetTriggerOff =>
-                            ok_or_err!(ds.set_trigger_off()),
+        DaemonCommand::SetTriggerOff => ok_or_err!(ds.set_trigger_off()),
 
-                            DaemonCommand::SetTriggerEffect { right, left, effect_type, params } =>
-                                ok_or_err!(ds.set_trigger_effect(left, right, effect_type, &params)),
+        DaemonCommand::SetTriggerEffect {
+            right,
+            left,
+            effect_type,
+            params,
+        } => ok_or_err!(ds.set_trigger_effect(left, right, effect_type, &params)),
 
-                                DaemonCommand::SetVibration { rumble, trigger } =>
-                                    ok_or_err!(ds.set_vibration(rumble, trigger)),
+        DaemonCommand::SetVibration { rumble, trigger } => {
+            ok_or_err!(ds.set_vibration(rumble, trigger))
+        }
 
-                                    DaemonCommand::SetSpeaker { mode } =>
-                                        ok_or_err!(ds.set_speaker(&mode)),
+        DaemonCommand::SetSpeaker { mode } => ok_or_err!(ds.set_speaker(&mode)),
 
-                                        DaemonCommand::SetVolume { volume } =>
-                                            ok_or_err!(ds.set_volume(volume)),
+        DaemonCommand::SetVolume { volume } => ok_or_err!(ds.set_volume(volume)),
 
-                                            DaemonCommand::SetLightbarEffect { .. } => unreachable!(),
+        DaemonCommand::SetLightbarEffect { .. } => unreachable!(),
 
-                                            DaemonCommand::SetUpdateMode { .. } => unreachable!(),
-                                            DaemonCommand::SetInputTransform { .. } => unreachable!(),
-                                            DaemonCommand::ClearInputTransform => unreachable!()
+        DaemonCommand::SetUpdateMode { .. } => unreachable!(),
+        DaemonCommand::SetInputTransform { .. } => unreachable!(),
+        DaemonCommand::ClearInputTransform => unreachable!(),
     }
 }
-

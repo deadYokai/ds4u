@@ -13,7 +13,7 @@ impl DS4UApp {
             } else {
                 Color32::TRANSPARENT
             })
-        .stroke(egui::Stroke::NONE)
+            .stroke(egui::Stroke::NONE)
             .min_size(vec2(ui.available_width(), 40.0));
 
         if ui.add(btn).clicked() {
@@ -31,55 +31,48 @@ impl DS4UApp {
                 if self.is_connected() {
                     let daemon_color = if self.ipc.is_some() {
                         c.success()
-                    } else { c.text() };
+                    } else {
+                        c.text()
+                    };
                     if let Some(battery) = &self.battery_info {
-                        ui.label(RichText::new(
-                                format!("Connected • {}", battery.status)
-                        )
-                            .size(12.0)
-                            .color(daemon_color));
-                            ui.add_space(10.0);
-                            ui.horizontal(|ui| {
-                                ui.label(format!("{}%", battery.capacity));
-                                let battery_color = if battery.capacity > 50 {
-                                    c.success()
-                                } else if battery.capacity > 20 {
-                                    c.warning()
-                                } else {
-                                    c.error()
-                                };
+                        ui.label(
+                            RichText::new(format!("Connected • {}", battery.status))
+                                .size(12.0)
+                                .color(daemon_color),
+                        );
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}%", battery.capacity));
+                            let battery_color = if battery.capacity > 50 {
+                                c.success()
+                            } else if battery.capacity > 20 {
+                                c.warning()
+                            } else {
+                                c.error()
+                            };
 
-                                let bar_width = ui.available_width();
-                                let (rect, _) = ui.allocate_exact_size(
-                                    vec2(bar_width, 4.0),
-                                    egui::Sense::hover()
-                                );
+                            let bar_width = ui.available_width();
+                            let (rect, _) =
+                                ui.allocate_exact_size(vec2(bar_width, 4.0), egui::Sense::hover());
 
-                                ui.painter().rect_filled(
-                                    egui::Rect::from_min_size(
-                                        rect.min,
-                                        vec2(bar_width * 
-                                            (battery.capacity as f32 / 100.0), 4.0)
-                                    ),
-                                    2.0,
-                                    battery_color
-                                ); 
-                            });
-                    } else { 
-                        ui.label(RichText::new("Connected")
-                            .size(12.0)
-                            .color(daemon_color));
-                            }
-                } else { 
-                    let spinner = egui::Spinner::new()
-                        .size(12.0)
-                        .color(c.accent());
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(
+                                    rect.min,
+                                    vec2(bar_width * (battery.capacity as f32 / 100.0), 4.0),
+                                ),
+                                2.0,
+                                battery_color,
+                            );
+                        });
+                    } else {
+                        ui.label(RichText::new("Connected").size(12.0).color(daemon_color));
+                    }
+                } else {
+                    let spinner = egui::Spinner::new().size(12.0).color(c.accent());
 
                     ui.add(spinner);
 
-                    ui.label(RichText::new("Searching...")
-                        .size(12.0)
-                        .color(c.accent()));
+                    ui.label(RichText::new("Searching...").size(12.0).color(c.accent()));
                 }
             });
     }
@@ -89,8 +82,12 @@ impl DS4UApp {
 
         ui.with_layout(Layout::top_down(egui::Align::Min), |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("DS4U").size(24.0)
-                    .color(self.theme.colors.text()).strong());
+                ui.label(
+                    RichText::new("DS4U")
+                        .size(24.0)
+                        .color(self.theme.colors.text())
+                        .strong(),
+                );
 
                 let (rect, _) = ui.allocate_exact_size(vec2(32.0, 18.0), Sense::hover());
                 let p = ui.painter();
@@ -164,17 +161,20 @@ impl DS4UApp {
             ui.add_space(10.0);
 
             if !self.error_message.is_empty() {
-                ui.label(RichText::new(&self.error_message)
-                    .size(11.0)
-                    .color(self.theme.colors.error()));
+                ui.label(
+                    RichText::new(&self.error_message)
+                        .size(11.0)
+                        .color(self.theme.colors.error()),
+                );
             }
 
             if !self.status_message.is_empty() {
-                ui.label(RichText::new(&self.status_message)
-                    .size(11.0)
-                    .color(self.theme.colors.success()));
+                ui.label(
+                    RichText::new(&self.status_message)
+                        .size(11.0)
+                        .color(self.theme.colors.success()),
+                );
             }
         });
     }
-
 }

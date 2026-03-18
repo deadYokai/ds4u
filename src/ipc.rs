@@ -1,13 +1,28 @@
-use std::{env, io::{self, BufRead, BufReader, Write}, path::{Path, PathBuf}, time::Duration};
+use std::{
+    env,
+    io::{self, BufRead, BufReader, Write},
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::{common::{LightbarEffect, MicLedState}, dualsense::BatteryInfo, inputs::ControllerState, transform::{self, InputTransform}};
+use crate::{
+    common::{LightbarEffect, MicLedState},
+    dualsense::BatteryInfo,
+    inputs::ControllerState,
+    transform::{self, InputTransform},
+};
 
 #[cfg(unix)]
 mod transport {
-    use std::{io, os::unix::net::{UnixListener, UnixStream}, path::PathBuf, time::Duration};
+    use std::{
+        io,
+        os::unix::net::{UnixListener, UnixStream},
+        path::PathBuf,
+        time::Duration,
+    };
 
     pub type Addr = PathBuf;
     pub type Stream = UnixStream;
@@ -29,7 +44,11 @@ mod transport {
 
 #[cfg(not(unix))]
 mod transport {
-    use std::{io, net::{SocketAddr, TcpListener, TcpStream}, time::Duration};
+    use std::{
+        io,
+        net::{SocketAddr, TcpListener, TcpStream},
+        time::Duration,
+    };
 
     pub type Addr = SocketAddr;
     pub type Stream = TcpStream;
@@ -98,20 +117,51 @@ pub enum DaemonCommand {
     GetInputState,
     GetFirmwareInfo,
     GetControllerInfo,
-    SetLightbar { r: u8, g: u8, b: u8, brightness: u8 },
-    SetLightbarEnabled { enabled: bool },
-    SetPlayerLeds { leds: u8 },
-    SetMic { enabled: bool },
-    SetMicLed { state: MicLedState },
+    SetLightbar {
+        r: u8,
+        g: u8,
+        b: u8,
+        brightness: u8,
+    },
+    SetLightbarEnabled {
+        enabled: bool,
+    },
+    SetPlayerLeds {
+        leds: u8,
+    },
+    SetMic {
+        enabled: bool,
+    },
+    SetMicLed {
+        state: MicLedState,
+    },
     SetTriggerOff,
-    SetTriggerEffect { right: bool, left: bool, effect_type: u8, params: [u8; 10] },
-    SetVibration { rumble: u8, trigger: u8 },
-    SetSpeaker { mode: String },
-    SetVolume { volume: u8 },
-    SetUpdateMode { active: bool },
-    SetInputTransform { transform: InputTransform },
+    SetTriggerEffect {
+        right: bool,
+        left: bool,
+        effect_type: u8,
+        params: [u8; 10],
+    },
+    SetVibration {
+        rumble: u8,
+        trigger: u8,
+    },
+    SetSpeaker {
+        mode: String,
+    },
+    SetVolume {
+        volume: u8,
+    },
+    SetUpdateMode {
+        active: bool,
+    },
+    SetInputTransform {
+        transform: InputTransform,
+    },
     ClearInputTransform,
-    SetLightbarEffect { effect: LightbarEffect }
+    SetLightbarEffect {
+        effect: LightbarEffect,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -119,18 +169,28 @@ pub enum DaemonCommand {
 pub enum DaemonResponse {
     Pong,
     Ok,
-    Error { message: String },
+    Error {
+        message: String,
+    },
     Battery(BatteryInfo),
     InputState(ControllerState),
-    FirmwareInfo { version: u16, build_date: String, build_time: String },
-    ControllerInfo { serial: String, product_id: u16, is_bt: bool },
-    NoDevice
+    FirmwareInfo {
+        version: u16,
+        build_date: String,
+        build_time: String,
+    },
+    ControllerInfo {
+        serial: String,
+        product_id: u16,
+        is_bt: bool,
+    },
+    NoDevice,
 }
 
 pub struct IpcClient {
     pub addr: DaemonAddr,
     reader: BufReader<DaemonStream>,
-    writer: DaemonStream
+    writer: DaemonStream,
 }
 
 impl IpcClient {
@@ -139,10 +199,10 @@ impl IpcClient {
         transport::set_timeout(&stream, Duration::from_secs(5))?;
         let writer = stream.try_clone()?;
 
-        Ok(Self{
+        Ok(Self {
             addr: addr.clone(),
             reader: BufReader::new(stream),
-            writer
+            writer,
         })
     }
 
@@ -177,7 +237,7 @@ impl IpcClient {
         match self.request(DaemonCommand::GetBattery)? {
             DaemonResponse::Battery(b) => Ok(b),
             DaemonResponse::Error { message } => bail!("{}", message),
-            _ => bail!("Unexpected response")
+            _ => bail!("Unexpected response"),
         }
     }
 
@@ -185,30 +245,42 @@ impl IpcClient {
         match self.request(DaemonCommand::GetInputState)? {
             DaemonResponse::InputState(s) => Ok(s),
             DaemonResponse::Error { message } => bail!("{}", message),
-            _ => bail!("Unexpected response")
-        }        
+            _ => bail!("Unexpected response"),
+        }
     }
 
     pub fn get_firmware_info(&mut self) -> Result<(u16, String, String)> {
         match self.request(DaemonCommand::GetFirmwareInfo)? {
-            DaemonResponse::FirmwareInfo { version, build_date, build_time } => 
-                Ok((version, build_date, build_time)),
+            DaemonResponse::FirmwareInfo {
+                version,
+                build_date,
+                build_time,
+            } => Ok((version, build_date, build_time)),
             DaemonResponse::Error { message } => bail!("{}", message),
-            _ => bail!("Unexpected response")
-        }         
+            _ => bail!("Unexpected response"),
+        }
     }
 
     pub fn get_controller_info(&mut self) -> Result<Option<(String, u16, bool)>> {
         match self.request(DaemonCommand::GetControllerInfo)? {
-            DaemonResponse::ControllerInfo { serial, product_id, is_bt } => 
-                Ok(Some((serial, product_id, is_bt))),
+            DaemonResponse::ControllerInfo {
+                serial,
+                product_id,
+                is_bt,
+            } => Ok(Some((serial, product_id, is_bt))),
             DaemonResponse::Error { message } => bail!("{}", message),
-            _ => bail!("Unexpected response")
-        }         
+            _ => bail!("Unexpected response"),
+        }
     }
 
     pub fn set_lightbar(&mut self, r: u8, g: u8, b: u8, brightness: u8) -> Result<()> {
-        self.request(DaemonCommand::SetLightbar { r, g, b, brightness }).map(|_| ())
+        self.request(DaemonCommand::SetLightbar {
+            r,
+            g,
+            b,
+            brightness,
+        })
+        .map(|_| ())
     }
 
     pub fn set_lightbar_enabled(&mut self, enabled: bool) -> Result<()> {
@@ -258,9 +330,12 @@ impl IpcClient {
         effect_type: u8,
         params: [u8; 10],
     ) -> Result<()> {
-        match self.request(
-            DaemonCommand::SetTriggerEffect { right, left, effect_type, params })?
-        {
+        match self.request(DaemonCommand::SetTriggerEffect {
+            right,
+            left,
+            effect_type,
+            params,
+        })? {
             DaemonResponse::Ok => Ok(()),
             DaemonResponse::Error { message } => bail!("{}", message),
             _ => Ok(()),
@@ -276,7 +351,9 @@ impl IpcClient {
     }
 
     pub fn set_speaker(&mut self, mode: &str) -> Result<()> {
-        match self.request(DaemonCommand::SetSpeaker { mode: mode.to_string() })? {
+        match self.request(DaemonCommand::SetSpeaker {
+            mode: mode.to_string(),
+        })? {
             DaemonResponse::Ok => Ok(()),
             DaemonResponse::Error { message } => bail!("{}", message),
             _ => Ok(()),
@@ -291,7 +368,8 @@ impl IpcClient {
         }
     }
     pub fn set_update_mode(&mut self, active: bool) -> Result<()> {
-        self.request(DaemonCommand::SetUpdateMode { active }).map(|_| ())
+        self.request(DaemonCommand::SetUpdateMode { active })
+            .map(|_| ())
     }
 
     pub fn set_input_transform(&mut self, transform: InputTransform) -> Result<()> {
@@ -314,8 +392,7 @@ impl IpcClient {
         match self.request(DaemonCommand::SetLightbarEffect { effect })? {
             DaemonResponse::Ok => Ok(()),
             DaemonResponse::Error { message } => bail!("{}", message),
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 }
-

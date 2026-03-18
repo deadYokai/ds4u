@@ -2,20 +2,20 @@ use std::env;
 
 use crate::app::DS4UApp;
 
-mod dualsense;
-mod state;
-mod firmware;
-mod profiles;
-mod daemon;
+mod app;
 mod common;
+mod daemon;
+mod dualsense;
+mod firmware;
 mod inputs;
 mod ipc;
-mod transform;
-mod app;
-mod style;
-mod ui;
-mod theme;
+mod profiles;
 mod settings;
+mod state;
+mod style;
+mod theme;
+mod transform;
+mod ui;
 
 fn main() -> Result<(), eframe::Error> {
     let args: Vec<String> = env::args().collect();
@@ -38,8 +38,6 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(DS4UApp::new()))
-        })
+        }),
     )
 }
-
-

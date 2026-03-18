@@ -10,9 +10,11 @@ impl DS4UApp {
 
         let c = &self.theme.colors;
 
-        ui.label(RichText::new("Configure vibration and haptic feedback")
-            .size(14.0)
-            .color(c.text_dim()));
+        ui.label(
+            RichText::new("Configure vibration and haptic feedback")
+                .size(14.0)
+                .color(c.text_dim()),
+        );
 
         ui.add_space(30.0);
 
@@ -22,8 +24,8 @@ impl DS4UApp {
 
         ui.label(
             RichText::new("0 = full strength · 7 = quietest")
-            .size(12.0)
-            .color(c.text_dim()),
+                .size(12.0)
+                .color(c.text_dim()),
         );
 
         ui.add_space(10.0);
@@ -33,8 +35,9 @@ impl DS4UApp {
         ui.horizontal(|ui| {
             ui.label("Rumble Motors:");
 
-            if ui.add(Slider::new(&mut self.vibration.rumble, 0..=7).text(""))
-                .changed() 
+            if ui
+                .add(Slider::new(&mut self.vibration.rumble, 0..=7).text(""))
+                .changed()
             {
                 changed = true;
             }
@@ -47,7 +50,8 @@ impl DS4UApp {
         ui.horizontal(|ui| {
             ui.label("Trigger Vibration:");
 
-            if ui.add(Slider::new(&mut self.vibration.trigger, 0..=7).text(""))
+            if ui
+                .add(Slider::new(&mut self.vibration.trigger, 0..=7).text(""))
                 .changed()
             {
                 changed = true;
@@ -60,5 +64,4 @@ impl DS4UApp {
             self.apply_vibration();
         }
     }
-
 }

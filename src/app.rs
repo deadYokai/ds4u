@@ -1,12 +1,22 @@
+use hidapi::HidApi;
 use std::{
     sync::{self, Arc, Mutex, mpsc, mpsc::Receiver},
     thread::{self, sleep},
     time::{Duration, Instant},
 };
-use hidapi::HidApi;
 
 use crate::{
-    common::*, daemon::DaemonManager, dualsense::{self, BatteryInfo, DualSense}, firmware::FirmwareDownloader, inputs::ControllerState, ipc::{socket_path, IpcClient}, profiles::{Profile, ProfileManager}, settings::{Settings, SettingsManager}, state::*, theme::{Theme, ThemeManager}, transform::InputTransform
+    common::*,
+    daemon::DaemonManager,
+    dualsense::{self, BatteryInfo, DualSense},
+    firmware::FirmwareDownloader,
+    inputs::ControllerState,
+    ipc::{IpcClient, socket_path},
+    profiles::{Profile, ProfileManager},
+    settings::{Settings, SettingsManager},
+    state::*,
+    theme::{Theme, ThemeManager},
+    transform::InputTransform,
 };
 
 pub(crate) struct DS4UApp {
@@ -36,7 +46,7 @@ pub(crate) struct DS4UApp {
 
     pub(crate) battery_info: Option<BatteryInfo>,
     pub(crate) last_battery_update: Instant,
-    
+
     pub(crate) lightbar: LightbarState,
     pub(crate) player_leds: u8,
     pub(crate) microphone: MicrophoneState,
@@ -49,12 +59,12 @@ pub(crate) struct DS4UApp {
     firmware_progress_rx: Option<Receiver<ProgressUpdate>>,
     pub(crate) firmware_progress: u32,
     pub(crate) firmware_status: String,
-    
+
     pub(crate) firmware_updating: bool,
     fw_used_daemon: bool,
 
     update_mode_flag: Option<Arc<sync::atomic::AtomicBool>>,
-    
+
     pub(crate) controller_serial: Option<String>,
     pub(crate) firmware_current_version: Option<u16>,
     pub(crate) firmware_latest_version: Option<String>,
@@ -95,7 +105,7 @@ impl DS4UApp {
             controller: None,
             ipc: None,
             last_connection_check: Instant::now(),
-            
+
             active_section: Section::Inputs,
             show_profiles_panel: false,
 
@@ -116,37 +126,37 @@ impl DS4UApp {
                 g: 0.5,
                 b: 1.0,
                 brightness: 255.0,
-                enabled: true
+                enabled: true,
             },
 
             player_leds: 1,
 
             microphone: MicrophoneState {
                 enabled: false,
-                led_state: MicLedState::Off
+                led_state: MicLedState::Off,
             },
 
             triggers: TriggerState {
                 mode: TriggerMode::Off,
                 position: 0,
-                strength: 5
+                strength: 5,
             },
 
             sticks: StickSettings {
                 left_curve: SensitivityCurve::Default,
                 right_curve: SensitivityCurve::Default,
                 left_deadzone: 0.1,
-                right_deadzone: 0.1
+                right_deadzone: 0.1,
             },
 
             audio: AudioSettings {
                 volume: 0,
-                speaker_mode: SpeakerMode::Internal
+                speaker_mode: SpeakerMode::Internal,
             },
 
             vibration: VibrationSettings {
                 rumble: 0,
-                trigger: 0
+                trigger: 0,
             },
 
             firmware_downloader: FirmwareDownloader::new(),
@@ -176,7 +186,7 @@ impl DS4UApp {
             pending_connect_since: None,
             input_transform: InputTransform::default(),
 
-            lightbar_effect: LightbarEffect::None
+            lightbar_effect: LightbarEffect::None,
         };
 
         app.check_for_controller();
@@ -189,7 +199,8 @@ impl DS4UApp {
             };
 
             let profile = if app.profile_manager.profile_exists(&name) {
-                app.profile_manager.load_profile(&name)
+                app.profile_manager
+                    .load_profile(&name)
                     .unwrap_or_else(|_| app.profile_manager.ensure_default_exists())
             } else {
                 app.profile_manager.ensure_default_exists()
@@ -200,10 +211,12 @@ impl DS4UApp {
 
         app
     }
-   
+
     pub(crate) fn apply_lightbar_effect(&mut self) {
         if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc.lock().unwrap()
+            let _ = ipc
+                .lock()
+                .unwrap()
                 .set_lightbar_effect(self.lightbar_effect.clone());
         }
     }
@@ -230,13 +243,19 @@ impl DS4UApp {
                 };
                 while !stop_clone.load(sync::atomic::Ordering::Relaxed) {
                     match client.get_input_state() {
-                        Ok(state) => { let _ = tx.send(state); }
-                        Err(_)    => { sleep(Duration::from_millis(8)); }
+                        Ok(state) => {
+                            let _ = tx.send(state);
+                        }
+                        Err(_) => {
+                            sleep(Duration::from_millis(8));
+                        }
                     }
                 }
             });
         } else {
-            let Some(ctrl) = self.controller.clone() else { return };
+            let Some(ctrl) = self.controller.clone() else {
+                return;
+            };
             thread::spawn(move || {
                 while !stop_clone.load(sync::atomic::Ordering::Relaxed) {
                     if let Ok(mut c) = ctrl.try_lock() {
@@ -303,7 +322,7 @@ impl DS4UApp {
             self.controller_serial = Some(serial);
             self.controller_is_bt = Some(is_bt);
             self.controller_product_id = Some(pid);
-        } 
+        }
 
         if let Ok((ver, date, time)) = c.get_firmware_info() {
             self.firmware_current_version = Some(ver);
@@ -353,8 +372,12 @@ impl DS4UApp {
             return;
         }
 
-        let Some(controller) = &self.controller else { return };
-        let Ok(mut ctrl) = controller.try_lock() else { return };
+        let Some(controller) = &self.controller else {
+            return;
+        };
+        let Ok(mut ctrl) = controller.try_lock() else {
+            return;
+        };
 
         if let Ok(info) = ctrl.get_battery() {
             self.battery_info = Some(info);
@@ -368,8 +391,12 @@ impl DS4UApp {
         if let Some(rx) = &self.firmware_progress_rx {
             while let Ok(update) = rx.try_recv() {
                 match update {
-                    ProgressUpdate::Progress(p) => { self.firmware_progress = p; }
-                    ProgressUpdate::Status(s) => { self.firmware_status = s; }
+                    ProgressUpdate::Progress(p) => {
+                        self.firmware_progress = p;
+                    }
+                    ProgressUpdate::Status(s) => {
+                        self.firmware_status = s;
+                    }
                     ProgressUpdate::Complete => {
                         self.firmware_updating = false;
                         self.status_message = "Firmware update completed".to_string();
@@ -403,7 +430,9 @@ impl DS4UApp {
     }
 
     fn acquire_direct_fw(&mut self) -> bool {
-        if self.controller.is_some() { return true; }
+        if self.controller.is_some() {
+            return true;
+        }
 
         self.daemon_manager.set_update_in_progress(true);
         sleep(Duration::from_millis(1500));
@@ -432,7 +461,7 @@ impl DS4UApp {
             (self.lightbar.r * 255.0) as u8,
             (self.lightbar.g * 255.0) as u8,
             (self.lightbar.b * 255.0) as u8,
-            self.lightbar.brightness as u8
+            self.lightbar.brightness as u8,
         );
 
         if let Some(ref ipc) = self.ipc.clone() {
@@ -440,9 +469,10 @@ impl DS4UApp {
             return;
         }
 
-        if let Some(controller) = &self.controller 
-            && let Ok(mut ctrl) = controller.lock() {
-                let _ = ctrl.set_lightbar(r, g, b, br);
+        if let Some(controller) = &self.controller
+            && let Ok(mut ctrl) = controller.lock()
+        {
+            let _ = ctrl.set_lightbar(r, g, b, br);
         }
     }
 
@@ -463,13 +493,13 @@ impl DS4UApp {
 
     pub(crate) fn apply_microphone(&mut self) {
         let (enabled, led) = (self.microphone.enabled, self.microphone.led_state);
-        
+
         if let Some(ref ipc) = self.ipc.clone() {
             let _ = ipc.lock().unwrap().set_mic(enabled);
             let _ = ipc.lock().unwrap().set_mic_led(led);
             return;
         }
-        
+
         if let Some(controller) = &self.controller
             && let Ok(mut ctrl) = controller.lock()
         {
@@ -500,7 +530,9 @@ impl DS4UApp {
                     let _ = ipc.lock().unwrap().set_trigger_off();
                     return;
                 }
-                if let Some(c) = &self.controller && let Ok(mut ctrl) = c.lock() {
+                if let Some(c) = &self.controller
+                    && let Ok(mut ctrl) = c.lock()
+                {
                     let _ = ctrl.set_trigger_off();
                 }
             }
@@ -525,14 +557,21 @@ impl DS4UApp {
                     ((strength_zones >> 8) & 0xff) as u8,
                     ((strength_zones >> 16) & 0xff) as u8,
                     ((strength_zones >> 24) & 0xff) as u8,
-                    0, 0, 0, 0,
+                    0,
+                    0,
+                    0,
+                    0,
                 ];
                 if let Some(ref ipc) = self.ipc.clone() {
-                    let _ = ipc.lock().unwrap()
+                    let _ = ipc
+                        .lock()
+                        .unwrap()
                         .set_trigger_effect(true, true, 0x21, params);
                     return;
                 }
-                if let Some(c) = &self.controller && let Ok(mut ctrl) = c.lock() {
+                if let Some(c) = &self.controller
+                    && let Ok(mut ctrl) = c.lock()
+                {
                     let _ = ctrl.set_trigger_effect(true, true, 0x21, &params);
                 }
             }
@@ -540,13 +579,13 @@ impl DS4UApp {
         }
     }
 
-    fn load_profile(&mut self, profile: &Profile) {    
-        self.lightbar.r          = profile.lightbar_r;
-        self.lightbar.g          = profile.lightbar_g;
-        self.lightbar.b          = profile.lightbar_b;
+    fn load_profile(&mut self, profile: &Profile) {
+        self.lightbar.r = profile.lightbar_r;
+        self.lightbar.g = profile.lightbar_g;
+        self.lightbar.b = profile.lightbar_b;
         self.lightbar.brightness = profile.lightbar_brightness;
-        self.player_leds         = profile.player_leds;
-        self.microphone.enabled  = profile.mic_enabled;
+        self.player_leds = profile.player_leds;
+        self.microphone.enabled = profile.mic_enabled;
 
         self.apply_lightbar();
         self.apply_player_leds();
@@ -554,18 +593,19 @@ impl DS4UApp {
 
         self.settings.profile = profile.name.clone();
         self.settings_manager.save(&self.settings);
-
     }
 
     pub(crate) fn sync_profile(&mut self) {
-        let Some(profile) = self.current_profile.as_mut() else { return };
+        let Some(profile) = self.current_profile.as_mut() else {
+            return;
+        };
 
-        profile.lightbar_r          = self.lightbar.r;
-        profile.lightbar_g          = self.lightbar.g;
-        profile.lightbar_b          = self.lightbar.b;
+        profile.lightbar_r = self.lightbar.r;
+        profile.lightbar_g = self.lightbar.g;
+        profile.lightbar_b = self.lightbar.b;
         profile.lightbar_brightness = self.lightbar.brightness;
-        profile.player_leds         = self.player_leds;
-        profile.mic_enabled         = self.microphone.enabled;
+        profile.player_leds = self.player_leds;
+        profile.mic_enabled = self.microphone.enabled;
 
         let _ = self.profile_manager.save_profile(profile);
     }
@@ -576,10 +616,7 @@ impl DS4UApp {
         }
 
         if let Some(ref ipc) = self.ipc.clone() {
-            let still_present = matches!(
-                ipc.lock().unwrap().get_controller_info(),
-                Ok(Some(_))
-            );
+            let still_present = matches!(ipc.lock().unwrap().get_controller_info(), Ok(Some(_)));
             if !still_present {
                 self.stop_input_polling();
                 self.disconnect_controller();
@@ -587,7 +624,9 @@ impl DS4UApp {
             return;
         }
 
-        let Some(serial) = self.controller_serial.clone() else { return };
+        let Some(serial) = self.controller_serial.clone() else {
+            return;
+        };
 
         if self.api.refresh_devices().is_err() {
             return;
@@ -608,14 +647,11 @@ impl DS4UApp {
     pub(crate) fn check_for_controller(&mut self) {
         self.last_connection_check = Instant::now();
 
-        if self.daemon_manager.is_active() 
+        if self.daemon_manager.is_active()
             && self.ipc.is_none()
             && let Some(client) = self.daemon_manager.connect_new_client()
         {
-            let available = matches!(
-                client.lock().unwrap().get_controller_info(),
-                Ok(Some(_))
-            );
+            let available = matches!(client.lock().unwrap().get_controller_info(), Ok(Some(_)));
             if available {
                 self.connect_via_daemon(client);
             }
@@ -628,7 +664,7 @@ impl DS4UApp {
 
         if self.controller.is_none() && !dualsense::list_devices(&self.api).is_empty() {
             match self.pending_connect_since {
-                None => { 
+                None => {
                     self.pending_connect_since = Some(Instant::now());
                 }
                 Some(since) if since.elapsed() >= Duration::from_millis(400) => {
@@ -642,29 +678,29 @@ impl DS4UApp {
         }
     }
 
-
     pub(crate) fn fetch_latest_verision_async(&mut self) {
         if self.firmware_checking_latest {
             return;
         }
 
-        let Some(pid) = self.controller_product_id else { return };
+        let Some(pid) = self.controller_product_id else {
+            return;
+        };
         let (tx, rx) = mpsc::channel();
         let downloader = self.firmware_downloader.clone();
 
         self.firmware_checking_latest = true;
         self.firmware_progress_rx = Some(rx);
-        thread::spawn(move || {
-            match downloader.get_latest_version() {
-                Ok((ds_ver, dse_ver)) => {
-                    let ver = if pid == DS_PID { ds_ver } else { dse_ver };
-                    let _ = tx.send(ProgressUpdate::LatestVersion(ver));
-                }
-                Err(e) => {
-                    let _ = tx.send(ProgressUpdate::Error(
-                            format!("Version check failed: {}", e)
-                    ));
-                }
+        thread::spawn(move || match downloader.get_latest_version() {
+            Ok((ds_ver, dse_ver)) => {
+                let ver = if pid == DS_PID { ds_ver } else { dse_ver };
+                let _ = tx.send(ProgressUpdate::LatestVersion(ver));
+            }
+            Err(e) => {
+                let _ = tx.send(ProgressUpdate::Error(format!(
+                    "Version check failed: {}",
+                    e
+                )));
             }
         });
     }
@@ -672,13 +708,15 @@ impl DS4UApp {
     pub(crate) fn flash_latest(&mut self) {
         self.stop_input_polling();
 
-        if !self.acquire_direct_fw() { return; }
+        if !self.acquire_direct_fw() {
+            return;
+        }
 
         let pid = self.controller_product_id.unwrap_or(DS_PID);
         let ctrl = Arc::clone(self.controller.as_ref().unwrap());
         let (tx, rx) = mpsc::channel();
         let downloader = self.firmware_downloader.clone();
-        
+
         self.firmware_progress_rx = Some(rx);
         self.firmware_updating = true;
         self.firmware_progress = 0;
@@ -714,8 +752,12 @@ impl DS4UApp {
             ctrl.set_update_mode(false);
 
             match result {
-                Ok(_) => { let _ = tx.send(ProgressUpdate::Complete); }
-                Err(e) => { let _ = tx.send(ProgressUpdate::Error(e.to_string())); }
+                Ok(_) => {
+                    let _ = tx.send(ProgressUpdate::Complete);
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressUpdate::Error(e.to_string()));
+                }
             }
         });
     }
@@ -725,7 +767,9 @@ impl DS4UApp {
             .set_title("Select firmware file")
             .add_filter("Firmware binary", &["bin"])
             .pick_file()
-        else { return };
+        else {
+            return;
+        };
 
         let fw_data = match std::fs::read(&path) {
             Ok(d) => d,
@@ -737,7 +781,9 @@ impl DS4UApp {
 
         self.stop_input_polling();
 
-        if !self.acquire_direct_fw() { return; }
+        if !self.acquire_direct_fw() {
+            return;
+        }
 
         let ctrl = Arc::clone(self.controller.as_ref().unwrap());
         let (tx, rx) = mpsc::channel();
@@ -763,20 +809,25 @@ impl DS4UApp {
             ctrl.set_update_mode(false);
 
             match result {
-                Ok(_)  => { let _ = tx.send(ProgressUpdate::Complete); }
-                Err(e) => { let _ = tx.send(ProgressUpdate::Error(e.to_string())); }
+                Ok(_) => {
+                    let _ = tx.send(ProgressUpdate::Complete);
+                }
+                Err(e) => {
+                    let _ = tx.send(ProgressUpdate::Error(e.to_string()));
+                }
             }
         });
     }
 
     pub(crate) fn apply_input_transform(&mut self) {
-        let mut t = self.current_profile
+        let mut t = self
+            .current_profile
             .as_ref()
             .map(|p| p.to_input_transform())
             .unwrap_or_default();
-        t.left_curve     = self.sticks.left_curve.clone();
-        t.right_curve    = self.sticks.right_curve.clone();
-        t.left_deadzone  = self.sticks.left_deadzone;
+        t.left_curve = self.sticks.left_curve.clone();
+        t.right_curve = self.sticks.right_curve.clone();
+        t.left_deadzone = self.sticks.left_deadzone;
         t.right_deadzone = self.sticks.right_deadzone;
 
         self.input_transform = t.clone();

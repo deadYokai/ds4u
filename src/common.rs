@@ -9,7 +9,7 @@ pub const FIRMWARE_SIZE: usize = 950272;
 pub enum MicLedState {
     Off,
     On,
-    Pulse
+    Pulse,
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Clone)]
@@ -20,7 +20,7 @@ pub enum TriggerMode {
     Bow,
     Galloping,
     Vibration,
-    Machine
+    Machine,
 }
 
 #[derive(Deserialize, Serialize, Clone, PartialEq, Debug)]
@@ -30,14 +30,14 @@ pub enum SensitivityCurve {
     Precise,
     Steady,
     Digital,
-    Dynamic
+    Dynamic,
 }
 
 #[derive(PartialEq)]
 pub enum SpeakerMode {
     Internal,
     Headphone,
-    Both
+    Both,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -45,7 +45,7 @@ pub enum LightbarEffect {
     None,
     Breath { speed: f32 },
     Rainbow { speed: f32 },
-    Strobe { speed: f32 }
+    Strobe { speed: f32 },
 }
 
 impl Default for LightbarEffect {

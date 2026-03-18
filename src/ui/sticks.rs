@@ -1,4 +1,4 @@
-use egui::{pos2, vec2, Align2, Color32, Pos2, RichText, Sense, Slider, Ui};
+use egui::{Align2, Color32, Pos2, RichText, Sense, Slider, Ui, pos2, vec2};
 
 use crate::app::DS4UApp;
 use crate::common::SensitivityCurve;
@@ -7,10 +7,16 @@ use crate::theme::ThemeColors;
 fn curve_value(curve: &SensitivityCurve, t: f32) -> f32 {
     match curve {
         SensitivityCurve::Default => t,
-        SensitivityCurve::Quick   => t.powf(0.5),
+        SensitivityCurve::Quick => t.powf(0.5),
         SensitivityCurve::Precise => t.powf(2.2),
-        SensitivityCurve::Steady  => t.powf(1.6),
-        SensitivityCurve::Digital => if t > 0.5 { 1.0 } else { 0.0 },
+        SensitivityCurve::Steady => t.powf(1.6),
+        SensitivityCurve::Digital => {
+            if t > 0.5 {
+                1.0
+            } else {
+                0.0
+            }
+        }
         SensitivityCurve::Dynamic => {
             let t2 = t * 2.0;
             if t < 0.5 {
@@ -33,34 +39,22 @@ impl DS4UApp {
         painter.circle_stroke(
             center,
             radius - 1.0,
-            egui::Stroke::new(2.0, c.widget_inactive())
+            egui::Stroke::new(2.0, c.widget_inactive()),
         );
 
-        painter.circle_filled(
-            center,
-            radius - 2.0,
-            c.extreme_bg()
-        );
+        painter.circle_filled(center, radius - 2.0, c.extreme_bg());
 
         let dz_radius = deadzone / 0.3 * (radius - 4.0);
 
         painter.circle_filled(
             center,
             dz_radius,
-            Color32::from_rgba_unmultiplied(220, 60, 60, 40)
+            Color32::from_rgba_unmultiplied(220, 60, 60, 40),
         );
 
-        painter.circle_stroke(
-            center,
-            dz_radius,
-            egui::Stroke::new(1.0, c.error())
-        );
+        painter.circle_stroke(center, dz_radius, egui::Stroke::new(1.0, c.error()));
 
-        painter.circle_filled(
-            center,
-            4.0,
-            c.accent()
-        );
+        painter.circle_filled(center, 4.0, c.accent());
     }
 
     fn render_curve_visual(ui: &mut Ui, curve: &SensitivityCurve, deadzone: f32, c: &ThemeColors) {
@@ -70,22 +64,18 @@ impl DS4UApp {
         let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
         let painter = ui.painter();
 
-        painter.rect_filled(
-            rect,
-            6.0,
-            c.extreme_bg()
-        );
+        painter.rect_filled(rect, 6.0, c.extreme_bg());
 
         painter.rect_stroke(
             rect,
             6.0,
             egui::Stroke::new(1.5, c.widget_inactive()),
-            egui::StrokeKind::Outside
+            egui::StrokeKind::Outside,
         );
 
         let plot_rect = egui::Rect::from_min_size(
             pos2(rect.min.x + pad, rect.min.y + pad),
-            vec2(size - pad * 2.0, size - pad * 2.0)
+            vec2(size - pad * 2.0, size - pad * 2.0),
         );
 
         for t in [0.25, 0.5, 0.75] {
@@ -94,29 +84,26 @@ impl DS4UApp {
 
             painter.line_segment(
                 [pos2(x, plot_rect.min.y), pos2(x, plot_rect.max.y)],
-                egui::Stroke::new(0.5, c.widget_inactive())
+                egui::Stroke::new(0.5, c.widget_inactive()),
             );
 
             painter.line_segment(
                 [pos2(plot_rect.min.x, y), pos2(plot_rect.max.x, y)],
-                egui::Stroke::new(0.5, c.widget_inactive())
+                egui::Stroke::new(0.5, c.widget_inactive()),
             );
         }
 
         painter.line_segment(
             [plot_rect.left_bottom(), plot_rect.right_top()],
-            egui::Stroke::new(1.0, c.widget_inactive())
+            egui::Stroke::new(1.0, c.widget_inactive()),
         );
 
         let dz_x = plot_rect.min.x + deadzone / 0.3 * plot_rect.width() * 0.3;
 
         painter.rect_filled(
-            egui::Rect::from_min_max(
-                plot_rect.min,
-                pos2(dz_x, plot_rect.max.y)
-            ),
+            egui::Rect::from_min_max(plot_rect.min, pos2(dz_x, plot_rect.max.y)),
             0.0,
-            Color32::from_rgba_unmultiplied(200, 50, 50, 25)
+            Color32::from_rgba_unmultiplied(200, 50, 50, 25),
         );
 
         let steps = 80;
@@ -136,21 +123,24 @@ impl DS4UApp {
         let font = egui::FontId::proportional(9.0);
         painter.text(
             plot_rect.left_bottom() + vec2(-2.0, 3.0),
-            Align2::RIGHT_TOP, "0",
+            Align2::RIGHT_TOP,
+            "0",
             font.clone(),
-            c.text_dim()
+            c.text_dim(),
         );
         painter.text(
             plot_rect.left_bottom() + vec2(2.0, 3.0),
-            Align2::LEFT_TOP, "1",
+            Align2::LEFT_TOP,
+            "1",
             font.clone(),
-            c.text_dim()
+            c.text_dim(),
         );
         painter.text(
             plot_rect.left_bottom() + vec2(-2.0, 0.0),
-            Align2::RIGHT_CENTER, "1",
+            Align2::RIGHT_CENTER,
+            "1",
             font.clone(),
-            c.text_dim()
+            c.text_dim(),
         );
     }
 
@@ -158,12 +148,14 @@ impl DS4UApp {
         ui.heading(RichText::new("Stick Sensitivity").size(28.0));
 
         ui.add_space(10.0);
-        
+
         let c = &self.theme.colors;
 
-        ui.label(RichText::new("Adjust response curves and deadzones")
-            .size(14.0)
-            .color(c.text_dim()));
+        ui.label(
+            RichText::new("Adjust response curves and deadzones")
+                .size(14.0)
+                .color(c.text_dim()),
+        );
 
         ui.add_space(30.0);
 
@@ -179,32 +171,32 @@ impl DS4UApp {
                     ui.selectable_value(
                         &mut self.sticks.left_curve,
                         SensitivityCurve::Default,
-                        "Default"
+                        "Default",
                     );
                     ui.selectable_value(
                         &mut self.sticks.left_curve,
                         SensitivityCurve::Quick,
-                        "Quick"
+                        "Quick",
                     );
                     ui.selectable_value(
                         &mut self.sticks.left_curve,
                         SensitivityCurve::Precise,
-                        "Precise"
+                        "Precise",
                     );
                     ui.selectable_value(
                         &mut self.sticks.left_curve,
                         SensitivityCurve::Steady,
-                        "Steady"
+                        "Steady",
                     );
                     ui.selectable_value(
                         &mut self.sticks.left_curve,
                         SensitivityCurve::Dynamic,
-                        "Dynamic"
+                        "Dynamic",
                     );
                     ui.selectable_value(
                         &mut self.sticks.left_curve,
                         SensitivityCurve::Digital,
-                        "Digital"
+                        "Digital",
                     );
                 });
 
@@ -212,12 +204,13 @@ impl DS4UApp {
                 &mut cols[0],
                 &self.sticks.left_curve,
                 self.sticks.left_deadzone,
-                &tc
+                &tc,
             );
 
             cols[0].add_space(15.0);
             cols[0].label("Deadzone");
-            if cols[0].add(Slider::new(&mut self.sticks.left_deadzone, 0.0..=0.3))
+            if cols[0]
+                .add(Slider::new(&mut self.sticks.left_deadzone, 0.0..=0.3))
                 .changed()
             {
                 self.apply_input_transform();
@@ -234,32 +227,32 @@ impl DS4UApp {
                     ui.selectable_value(
                         &mut self.sticks.right_curve,
                         SensitivityCurve::Default,
-                        "Default"
+                        "Default",
                     );
                     ui.selectable_value(
                         &mut self.sticks.right_curve,
                         SensitivityCurve::Quick,
-                        "Quick"
+                        "Quick",
                     );
                     ui.selectable_value(
                         &mut self.sticks.right_curve,
                         SensitivityCurve::Precise,
-                        "Precise"
+                        "Precise",
                     );
                     ui.selectable_value(
                         &mut self.sticks.right_curve,
                         SensitivityCurve::Steady,
-                        "Steady"
+                        "Steady",
                     );
                     ui.selectable_value(
                         &mut self.sticks.right_curve,
                         SensitivityCurve::Dynamic,
-                        "Dynamic"
+                        "Dynamic",
                     );
                     ui.selectable_value(
                         &mut self.sticks.right_curve,
                         SensitivityCurve::Digital,
-                        "Digital"
+                        "Digital",
                     );
                 });
 
@@ -267,12 +260,13 @@ impl DS4UApp {
                 &mut cols[1],
                 &self.sticks.right_curve,
                 self.sticks.right_deadzone,
-                &tc
+                &tc,
             );
 
             cols[1].add_space(15.0);
             cols[1].label("Deadzone");
-            if cols[1].add(Slider::new(&mut self.sticks.right_deadzone, 0.0..=0.3))
+            if cols[1]
+                .add(Slider::new(&mut self.sticks.right_deadzone, 0.0..=0.3))
                 .changed()
             {
                 self.apply_input_transform();

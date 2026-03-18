@@ -1,4 +1,4 @@
-use crate::common::{MicLedState, TriggerMode, SensitivityCurve, SpeakerMode};
+use crate::common::{MicLedState, SensitivityCurve, SpeakerMode, TriggerMode};
 
 #[derive(Debug, Clone)]
 pub(crate) enum ProgressUpdate {
@@ -11,7 +11,14 @@ pub(crate) enum ProgressUpdate {
 
 #[derive(PartialEq)]
 pub(crate) enum Section {
-    Lightbar, Triggers, Sticks, Haptics, Audio, Advanced, Inputs, Settings
+    Lightbar,
+    Triggers,
+    Sticks,
+    Haptics,
+    Audio,
+    Advanced,
+    Inputs,
+    Settings,
 }
 
 pub(crate) struct LightbarState {

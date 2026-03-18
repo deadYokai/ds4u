@@ -4,16 +4,18 @@ use crate::app::DS4UApp;
 use crate::common::TriggerMode;
 
 impl DS4UApp {
-    pub(crate) fn render_triggers_section(&mut self, ui: &mut Ui) { 
+    pub(crate) fn render_triggers_section(&mut self, ui: &mut Ui) {
         ui.heading(RichText::new("Adaptive Triggers").size(28.0));
 
         ui.add_space(10.0);
 
         let c = &self.theme.colors;
 
-        ui.label(RichText::new("Configure trigger resistance and feedback")
-            .size(14.0)
-            .color(c.text_dim()));
+        ui.label(
+            RichText::new("Configure trigger resistance and feedback")
+                .size(14.0)
+                .color(c.text_dim()),
+        );
 
         ui.add_space(30.0);
 
@@ -22,15 +24,19 @@ impl DS4UApp {
         ui.add_space(15.0);
 
         ui.horizontal(|ui| {
-            if ui.selectable_label
-                (self.triggers.mode == TriggerMode::Off, "Off").clicked() {
-                    self.triggers.mode = TriggerMode::Off;
-                    self.apply_trigger();
+            if ui
+                .selectable_label(self.triggers.mode == TriggerMode::Off, "Off")
+                .clicked()
+            {
+                self.triggers.mode = TriggerMode::Off;
+                self.apply_trigger();
             }
 
-            if ui.selectable_label
-                (self.triggers.mode == TriggerMode::Feedback, "Feedback").clicked() {
-                    self.triggers.mode = TriggerMode::Feedback;
+            if ui
+                .selectable_label(self.triggers.mode == TriggerMode::Feedback, "Feedback")
+                .clicked()
+            {
+                self.triggers.mode = TriggerMode::Feedback;
             }
         });
 

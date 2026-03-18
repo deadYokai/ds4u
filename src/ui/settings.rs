@@ -1,4 +1,4 @@
-use egui::{vec2, Color32, Frame, RichText, Stroke, Ui};
+use egui::{Color32, Frame, RichText, Stroke, Ui, vec2};
 
 use crate::app::DS4UApp;
 
@@ -7,16 +7,21 @@ impl DS4UApp {
         ui.heading(RichText::new("Settings").size(28.0));
         ui.add_space(10.0);
 
-        ui.label(RichText::new("Application preferences")
-            .size(14.0).color(self.theme.colors.text_dim()));
+        ui.label(
+            RichText::new("Application preferences")
+                .size(14.0)
+                .color(self.theme.colors.text_dim()),
+        );
 
         ui.add_space(30.0);
 
         ui.horizontal(|ui| {
             ui.label(RichText::new("Theme").size(18.0).strong());
             ui.add_space(6.0);
-            if ui.button(RichText::new("Refresh").size(16.0))
-                .on_hover_text("Refresh themes").clicked()
+            if ui
+                .button(RichText::new("Refresh").size(16.0))
+                .on_hover_text("Refresh themes")
+                .clicked()
             {
                 self.theme_manager.reload();
             }
@@ -40,7 +45,11 @@ impl DS4UApp {
                     };
 
                     let response = Frame::NONE
-                        .fill(Color32::from_rgb(c.panel_bg[0], c.panel_bg[1], c.panel_bg[2]))
+                        .fill(Color32::from_rgb(
+                            c.panel_bg[0],
+                            c.panel_bg[1],
+                            c.panel_bg[2],
+                        ))
                         .stroke(Stroke::new(if selected { 2.0 } else { 1.0 }, frame_color))
                         .corner_radius(8)
                         .inner_margin(10)
@@ -51,22 +60,27 @@ impl DS4UApp {
                                 for col in [c.accent, c.success, c.error] {
                                     let (rect, _) = ui.allocate_exact_size(
                                         vec2(16.0, 16.0),
-                                        egui::Sense::hover()
+                                        egui::Sense::hover(),
                                     );
 
                                     ui.painter().rect_filled(
-                                        rect, 4.0,
-                                        Color32::from_rgb(col[0], col[1], col[2])
+                                        rect,
+                                        4.0,
+                                        Color32::from_rgb(col[0], col[1], col[2]),
                                     );
                                 }
                             });
 
                             ui.add_space(6.0);
 
-                            ui.label(RichText::new(&t.name).size(13.0)
-                                .color(Color32::from_rgb(c.text[0], c.text[1], c.text[2])));
-                    }).response;
-                    
+                            ui.label(
+                                RichText::new(&t.name)
+                                    .size(13.0)
+                                    .color(Color32::from_rgb(c.text[0], c.text[1], c.text[2])),
+                            );
+                        })
+                        .response;
+
                     if response.interact(egui::Sense::click()).clicked() && !selected {
                         self.settings.theme_id = t.id.clone();
                         self.theme = t.clone();
@@ -77,15 +91,18 @@ impl DS4UApp {
                         ui.end_row();
                     }
                 }
-        });
+            });
 
         ui.add_space(30.0);
         ui.separator();
         ui.add_space(30.0);
-        
+
         ui.label(RichText::new("General").size(18.0).strong());
         ui.add_space(10.0);
-        ui.label(RichText::new("Nothing here yet...")
-            .size(14.0).color(self.theme.colors.text_dim()));
+        ui.label(
+            RichText::new("Nothing here yet...")
+                .size(14.0)
+                .color(self.theme.colors.text_dim()),
+        );
     }
 }

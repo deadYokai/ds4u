@@ -1,8 +1,15 @@
-use std::{sync::{atomic::{AtomicBool, Ordering}, Arc}, thread::sleep, time::{Duration, Instant}};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
+use crc::{CRC_32_ISO_HDLC, Crc};
 use hidapi::{HidApi, HidDevice};
-use crc::{Crc, CRC_32_ISO_HDLC};
 use serde::{Deserialize, Serialize};
 
 use crate::{common::*, inputs::*};
@@ -75,13 +82,13 @@ struct DualSenseInputReport {
     gyro: [u16; 3],
     accel: [u16; 3],
     sensor_timestamp: u32,
-    reserved2: u8
+    reserved2: u8,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BatteryInfo {
     pub capacity: u8,
-    pub status: String
+    pub status: String,
 }
 
 pub struct DualSense {
@@ -90,12 +97,13 @@ pub struct DualSense {
     output_seq: u8,
     product_id: u16,
     serial: String,
-    update_mode: Arc<AtomicBool>
+    update_mode: Arc<AtomicBool>,
 }
 
 impl DualSense {
     pub fn new(api: &HidApi, serial: Option<&str>) -> Result<Self> {
-        let device_info = api.device_list()
+        let device_info = api
+            .device_list()
             .find(|info| {
                 if info.vendor_id() != DS_VID {
                     return false;
@@ -116,10 +124,13 @@ impl DualSense {
                     anyhow!(
                         "DualSense controller '{}' not found.
 Check connection and try refreshing",
-                        serial.unwrap())
+                        serial.unwrap()
+                    )
                 } else {
-                    anyhow!("No DualSense controller found.
-Please connect your controller via USB or Bluetooth.")
+                    anyhow!(
+                        "No DualSense controller found.
+Please connect your controller via USB or Bluetooth."
+                    )
                 }
             })?;
 
@@ -134,7 +145,7 @@ Please connect your controller via USB or Bluetooth.")
             output_seq: 0,
             product_id,
             serial,
-            update_mode: Arc::new(AtomicBool::new(false))
+            update_mode: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -175,7 +186,10 @@ Please connect your controller via USB or Bluetooth.")
         if buf[0] != id || size != expected_size {
             bail!(
                 "Unexpected input report: id=0x{:02X} size={} (expected id=0x{:02X} size={})",
-                buf[0], size, id, expected_size
+                buf[0],
+                size,
+                id,
+                expected_size
             );
         }
 
@@ -196,22 +210,52 @@ Please connect your controller via USB or Bluetooth.")
             let b2 = d[9];
             let mut b: u32 = 0;
 
-            if b0 & 0x10 != 0 { b |=  BTN_SQUARE; }
-            if b0 & 0x20 != 0 { b |=  BTN_CROSS; }
-            if b0 & 0x40 != 0 { b |=  BTN_CIRCLE; }
-            if b0 & 0x80 != 0 { b |=  BTN_TRIANGLE; }
-            if b1 & 0x01 != 0 { b |=  BTN_L1; }
-            if b1 & 0x02 != 0 { b |=  BTN_R1; }
-            if b1 & 0x04 != 0 { b |=  BTN_L2; }
-            if b1 & 0x08 != 0 { b |=  BTN_R2; }
-            if b1 & 0x10 != 0 { b |=  BTN_CREATE; }
-            if b1 & 0x20 != 0 { b |=  BTN_OPTIONS; }
-            if b1 & 0x40 != 0 { b |=  BTN_L3; }
-            if b1 & 0x80 != 0 { b |=  BTN_R3; }
-            if b2 & 0x01 != 0 { b |=  BTN_PS; }
-            if b2 & 0x02 != 0 { b |=  BTN_TOUCHPAD; }
-            if b2 & 0x04 != 0 { b |=  BTN_MUTE; }
-            
+            if b0 & 0x10 != 0 {
+                b |= BTN_SQUARE;
+            }
+            if b0 & 0x20 != 0 {
+                b |= BTN_CROSS;
+            }
+            if b0 & 0x40 != 0 {
+                b |= BTN_CIRCLE;
+            }
+            if b0 & 0x80 != 0 {
+                b |= BTN_TRIANGLE;
+            }
+            if b1 & 0x01 != 0 {
+                b |= BTN_L1;
+            }
+            if b1 & 0x02 != 0 {
+                b |= BTN_R1;
+            }
+            if b1 & 0x04 != 0 {
+                b |= BTN_L2;
+            }
+            if b1 & 0x08 != 0 {
+                b |= BTN_R2;
+            }
+            if b1 & 0x10 != 0 {
+                b |= BTN_CREATE;
+            }
+            if b1 & 0x20 != 0 {
+                b |= BTN_OPTIONS;
+            }
+            if b1 & 0x40 != 0 {
+                b |= BTN_L3;
+            }
+            if b1 & 0x80 != 0 {
+                b |= BTN_R3;
+            }
+            if b2 & 0x01 != 0 {
+                b |= BTN_PS;
+            }
+            if b2 & 0x02 != 0 {
+                b |= BTN_TOUCHPAD;
+            }
+            if b2 & 0x04 != 0 {
+                b |= BTN_MUTE;
+            }
+
             b
         };
 
@@ -220,7 +264,7 @@ Please connect your controller via USB or Bluetooth.")
             i16::from_le_bytes([d[17], d[18]]),
             i16::from_le_bytes([d[19], d[20]]),
         ];
-        
+
         let accel = [
             i16::from_le_bytes([d[21], d[22]]),
             i16::from_le_bytes([d[23], d[24]]),
@@ -245,19 +289,27 @@ Please connect your controller via USB or Bluetooth.")
                     active: true,
                     id: b0 & 0x7f,
                     x: x.min(TOUCHPAD_MAX_X - 1),
-                    y: y.min(TOUCHPAD_MAX_Y - 1)
+                    y: y.min(TOUCHPAD_MAX_Y - 1),
                 };
 
                 touch_count += 1;
             }
         }
-        
+
         Ok(ControllerState {
-            left_x, left_y, right_x, right_y,
-            l2, r2,
-            buttons, dpad,
-            gyro, accel, sensor_timestamp,
-            touch_count, touch_points
+            left_x,
+            left_y,
+            right_x,
+            right_y,
+            l2,
+            r2,
+            buttons,
+            dpad,
+            gyro,
+            accel,
+            sensor_timestamp,
+            touch_count,
+            touch_points,
         })
     }
 
@@ -265,7 +317,9 @@ Please connect your controller via USB or Bluetooth.")
         let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
         buf[0] = 0x20;
 
-        let size = self.device.get_feature_report(&mut buf)
+        let size = self
+            .device
+            .get_feature_report(&mut buf)
             .context("Failed to read firmware version")?;
 
         if size < 50 {
@@ -277,7 +331,7 @@ Please connect your controller via USB or Bluetooth.")
         let build_date = String::from_utf8_lossy(&buf[1..12])
             .trim_end_matches('\0')
             .to_string();
-        
+
         let build_time = String::from_utf8_lossy(&buf[12..20])
             .trim_end_matches('\0')
             .to_string();
@@ -315,7 +369,7 @@ Please connect your controller via USB or Bluetooth.")
     fn calc_crc32(&self, data: &[u8]) -> u32 {
         let mut digest = CRC32.digest();
         digest.update(&[OUTPUT_CRC32_SEED]);
-        digest.update(&data[0..data.len()-4]);
+        digest.update(&data[0..data.len() - 4]);
         digest.finalize()
     }
 
@@ -367,14 +421,7 @@ Please connect your controller via USB or Bluetooth.")
 
     pub fn set_player_leds(&mut self, n: u8) -> Result<()> {
         const PLAYER_LED_PATTERNS: [u8; 8] = [
-            0b00000,
-            0b00100,
-            0b01010,
-            0b10101,
-            0b11011,
-            0b11111,
-            0b10001,
-            0b01110
+            0b00000, 0b00100, 0b01010, 0b10101, 0b11011, 0b11111, 0b10001, 0b01110,
         ];
 
         if n >= PLAYER_LED_PATTERNS.len() as u8 {
@@ -400,13 +447,13 @@ Please connect your controller via USB or Bluetooth.")
             "internal" => 3 << DS_OUTPUT_AUDIO_OUTPUT_PATH_SHIFT,
             "headphone" => 0,
             "both" => 2 << DS_OUTPUT_AUDIO_OUTPUT_PATH_SHIFT,
-            _ => 0
+            _ => 0,
         };
 
         self.send_output_report(&mut buf)
     }
 
-    pub fn set_volume(&mut self, volume: u8) -> Result<()> { 
+    pub fn set_volume(&mut self, volume: u8) -> Result<()> {
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
 
@@ -417,7 +464,7 @@ Please connect your controller via USB or Bluetooth.")
 
         buf[offset] |= DS_OUTPUT_VALID_FLAG0_SPEAKER_VOLUME_ENABLE;
         buf[offset + 5] = (volume as u16 * 0x64 / max_volume) as u8;
-        
+
         self.send_output_report(&mut buf)
     }
 
@@ -425,7 +472,7 @@ Please connect your controller via USB or Bluetooth.")
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
 
-        buf[offset + 1]  = DS_OUTPUT_VALID_FLAG1_VIBRATION_ATTENUATION_ENABLE;
+        buf[offset + 1] = DS_OUTPUT_VALID_FLAG1_VIBRATION_ATTENUATION_ENABLE;
         buf[offset + 36] = (rumble & 0x07) | ((trigger & 0x07) << 4);
 
         self.send_output_report(&mut buf)
@@ -434,7 +481,7 @@ Please connect your controller via USB or Bluetooth.")
     pub fn set_mic(&mut self, enabled: bool) -> Result<()> {
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
-        
+
         buf[offset + 1] = DS_OUTPUT_VALID_FLAG1_POWER_SAVE_CONTROL_ENABLE;
         if enabled {
             buf[offset + 9] &= !DS_OUTPUT_POWER_SAVE_CONTROL_MIC_MUTE;
@@ -454,7 +501,7 @@ Please connect your controller via USB or Bluetooth.")
         buf[offset + 8] = match state {
             MicLedState::Off => 0,
             MicLedState::On => 1,
-            MicLedState::Pulse => 2
+            MicLedState::Pulse => 2,
         };
 
         self.send_output_report(&mut buf)
@@ -462,12 +509,14 @@ Please connect your controller via USB or Bluetooth.")
 
     pub fn set_trigger_effect(
         &mut self,
-        left: bool, right: bool,
-        mode: u8, params: &[u8]
+        left: bool,
+        right: bool,
+        mode: u8,
+        params: &[u8],
     ) -> Result<()> {
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
-        
+
         if right {
             buf[offset] |= DS_OUTPUT_VALID_FLAG0_RIGHT_TRIGGER_MOTOR_ENABLE;
         }
@@ -509,7 +558,7 @@ Please connect your controller via USB or Bluetooth.")
             (DS_INPUT_REPORT_BT, DS_INPUT_REPORT_BT_SIZE, 54)
         } else {
             (DS_INPUT_REPORT_USB, DS_INPUT_REPORT_USB_SIZE, 53)
-        }; 
+        };
 
         if buf[0] != report || size != report_size {
             bail!("Invalid report received");
@@ -525,50 +574,59 @@ Please connect your controller via USB or Bluetooth.")
             0x1 => ((bat_data * 10 + 5).min(100), "Charging"),
             0x2 => ((bat_data * 10 + 5).min(100), "Full"),
             0xa | 0xb => (0, "Not charging"),
-            _ => (0, "Unknown")
+            _ => (0, "Unknown"),
         };
 
-        Ok(BatteryInfo { capacity, status: status.to_string() })
+        Ok(BatteryInfo {
+            capacity,
+            status: status.to_string(),
+        })
     }
 
     pub fn update_firmware(
         &mut self,
         firmware_data: &[u8],
-        progress_callback: impl Fn(u32) + Send + 'static
+        progress_callback: impl Fn(u32) + Send + 'static,
     ) -> Result<()> {
         if self.is_bt {
             bail!("Firmware update not supported over Bluetooth.");
         }
 
         if firmware_data.len() != FIRMWARE_SIZE {
-            bail!("Invalid firmware size: {} bytes (expected {})",
-                    firmware_data.len(), FIRMWARE_SIZE);
+            bail!(
+                "Invalid firmware size: {} bytes (expected {})",
+                firmware_data.len(),
+                FIRMWARE_SIZE
+            );
         }
 
         let battery = self.get_battery()?;
         if battery.capacity < DS_BATTERY_THRESHOLD {
-            bail!("Battery too low: {}% (need at least {}%)", 
-                battery.capacity, DS_BATTERY_THRESHOLD);
+            bail!(
+                "Battery too low: {}% (need at least {}%)",
+                battery.capacity,
+                DS_BATTERY_THRESHOLD
+            );
         }
 
         self.check_firmware_compatibility(firmware_data)?;
 
         progress_callback(0);
-        
+
         self.firmware_start(firmware_data)?;
-        
+
         progress_callback(5);
-        
+
         self.firmware_write(firmware_data, &progress_callback)?;
 
         progress_callback(95);
-        
+
         self.firmware_verify()?;
 
         progress_callback(98);
 
         self.firmware_finale()?;
-        
+
         progress_callback(100);
         Ok(())
     }
@@ -584,19 +642,27 @@ Please connect your controller via USB or Bluetooth.")
         if fw_product_id != self.product_id {
             bail!(
                 "Firmware incompatible. Firmware device: 0x{:04X}, Connected device: 0x{:04X}",
-                fw_product_id, self.product_id
+                fw_product_id,
+                self.product_id
             );
         }
 
         let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
         buf[0] = 0x20;
-        
+
         match self.device.get_feature_report(&mut buf) {
             Ok(DS_INPUT_REPORT_USB_SIZE) => {
                 let current_version = u16::from_le_bytes([buf[44], buf[45]]);
-                println!("Updating firmware for {} from 0x{:04X} to 0x{:04X}",
-                    if self.product_id == DS_PID { "DualSense" } else { "DualSense Edge" },
-                    current_version, fw_version);
+                println!(
+                    "Updating firmware for {} from 0x{:04X} to 0x{:04X}",
+                    if self.product_id == DS_PID {
+                        "DualSense"
+                    } else {
+                        "DualSense Edge"
+                    },
+                    current_version,
+                    fw_version
+                );
             }
             _ => {
                 eprintln!("Warning: Could not read current firmware version");
@@ -610,9 +676,13 @@ Please connect your controller via USB or Bluetooth.")
         if self.is_bt {
             bail!("Please connect to USB.");
         }
-        self.device.send_feature_report(buf)
-            .map_err(|e| anyhow!("Failed to send firmware data: {}.
-                    Controller may have disconnected.", e))
+        self.device.send_feature_report(buf).map_err(|e| {
+            anyhow!(
+                "Failed to send firmware data: {}.
+                    Controller may have disconnected.",
+                e
+            )
+        })
     }
 
     fn firmware_wait_status(&self, expected: u8) -> Result<()> {
@@ -624,14 +694,18 @@ Please connect your controller via USB or Bluetooth.")
 
             let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
             buf[0] = DS_FEATURE_REPORT_FW_STATUS;
-            
+
             self.device.get_feature_report(&mut buf)?;
 
             let phase = buf[1];
             let status = buf[2];
 
             if phase != expected {
-                bail!("Unexpected phase: 0x{:02x} (expected 0x{:02x})", phase, expected);
+                bail!(
+                    "Unexpected phase: 0x{:02x} (expected 0x{:02x})",
+                    phase,
+                    expected
+                );
             }
 
             match expected {
@@ -639,7 +713,7 @@ Please connect your controller via USB or Bluetooth.")
                     0x00 => return Ok(()),
                     0x04 | 0x10 => {
                         sleep(Duration::from_millis(10));
-                        continue
+                        continue;
                     }
                     0x01 => bail!("Start error 0x01: firmware rejected"),
                     0x02 => bail!("Start error 0x02: invalid firmware"),
@@ -648,27 +722,27 @@ Please connect your controller via USB or Bluetooth.")
                     0x06 => bail!("Start error 0x06: temperature or safety error"),
                     0x11 => bail!("Start error 0x11: invalid firmware"),
                     0xFF => bail!("Start error 0xFF: internal error"),
-                    _    => bail!("Start unknown status: 0x{:02x}", status),
+                    _ => bail!("Start unknown status: 0x{:02x}", status),
                 },
 
                 0x01 => match status {
                     0x00 | 0x03 => return Ok(()),
                     0x01 | 0x10 => {
                         sleep(Duration::from_millis(10));
-                        continue
+                        continue;
                     }
                     0x02 => bail!("Write error 0x02: invalid firmware data"),
                     0x04 => bail!("Write error 0x04: invalid firmware data"),
                     0x11 => bail!("Write error 0x11: invalid firmware"),
                     0xFF => bail!("Write error 0xFF: internal error"),
-                    _    => bail!("Write unknown status: 0x{:02x}", status),
+                    _ => bail!("Write unknown status: 0x{:02x}", status),
                 },
 
                 0x02 => match status {
                     0x00 => return Ok(()),
                     0x10 => {
                         sleep(Duration::from_millis(10));
-                        continue
+                        continue;
                     }
                     0x01 => bail!("Verify error 0x01: firmware rejected"),
                     0x02 => bail!("Verify error 0x02: checksum mismatch"),
@@ -676,7 +750,7 @@ Please connect your controller via USB or Bluetooth.")
                     0x04 => bail!("Verify error 0x04: invalid firmware"),
                     0x11 => bail!("Verify error 0x11: invalid firmware"),
                     0xFF => bail!("Verify error 0xFF: internal error"),
-                    _    => bail!("Verify unknown status: 0x{:02x}", status),
+                    _ => bail!("Verify unknown status: 0x{:02x}", status),
                 },
 
                 _ => bail!("Unknown phase: 0x{:02x}", expected),
@@ -692,7 +766,7 @@ Please connect your controller via USB or Bluetooth.")
             let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
             buf[0] = DS_FEATURE_REPORT_FW;
             buf[2] = chunk_size as u8;
-            buf[3..3+chunk_size].copy_from_slice(&firmware_data[offset..offset+chunk_size]);
+            buf[3..3 + chunk_size].copy_from_slice(&firmware_data[offset..offset + chunk_size]);
 
             self.send_firmware_feature(&buf)?;
 
@@ -707,7 +781,7 @@ Please connect your controller via USB or Bluetooth.")
     fn firmware_write(
         &mut self,
         firmware_data: &[u8],
-        progress_callback: impl Fn(u32)
+        progress_callback: impl Fn(u32),
     ) -> Result<()> {
         let total_size = firmware_data.len();
 
@@ -729,8 +803,8 @@ Please connect your controller via USB or Bluetooth.")
                 buf[0] = DS_FEATURE_REPORT_FW;
                 buf[1] = 0x01;
                 buf[2] = actual_size as u8;
-                buf[3..3+actual_size].copy_from_slice(
-                    &firmware_data[global_offset..global_offset+actual_size]);
+                buf[3..3 + actual_size]
+                    .copy_from_slice(&firmware_data[global_offset..global_offset + actual_size]);
 
                 self.send_firmware_feature(&buf)?;
                 self.firmware_wait_status(0x01)?;
@@ -767,14 +841,17 @@ Please connect your controller via USB or Bluetooth.")
 pub fn list_devices(api: &HidApi) -> Vec<String> {
     api.device_list()
         .filter(|info| {
-            info.vendor_id() == DS_VID && 
-            (info.product_id() == DS_PID || info.product_id() == DSE_PID)
+            info.vendor_id() == DS_VID
+                && (info.product_id() == DS_PID || info.product_id() == DSE_PID)
         })
         .map(|info| {
-            let connection = if info.interface_number() == -1 { "Bluetooth" } else { "USB" };
+            let connection = if info.interface_number() == -1 {
+                "Bluetooth"
+            } else {
+                "USB"
+            };
             let serial = info.serial_number().unwrap_or("Unknown");
             format!("{} ({})", serial, connection)
         })
         .collect()
 }
-

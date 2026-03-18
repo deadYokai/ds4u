@@ -1,9 +1,13 @@
 use std::{collections::HashMap, fs, path::PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::{common::*, inputs::Button, transform::{InputTransform, TriggerDeadband}};
+use crate::{
+    common::*,
+    inputs::Button,
+    transform::{InputTransform, TriggerDeadband},
+};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Profile {
@@ -22,26 +26,26 @@ pub struct Profile {
     pub touchpad_enabled: bool,
     pub button_remapping: HashMap<Button, Button>,
     pub stick_left_deadzone: f32,
-    pub stick_right_deadzone: f32
+    pub stick_right_deadzone: f32,
 }
 
-impl Profile { 
+impl Profile {
     pub fn to_input_transform(&self) -> InputTransform {
         InputTransform {
-            left_curve:       self.stick_left_curve.clone(),
-            right_curve:      self.stick_right_curve.clone(),
-            left_deadzone:    self.stick_left_deadzone,
-            right_deadzone:   self.stick_right_deadzone,
-            trigger_left:     TriggerDeadband::default(),
-            trigger_right:    TriggerDeadband::default(),
-            button_remap:     self.button_remapping.clone(),
+            left_curve: self.stick_left_curve.clone(),
+            right_curve: self.stick_right_curve.clone(),
+            left_deadzone: self.stick_left_deadzone,
+            right_deadzone: self.stick_right_deadzone,
+            trigger_left: TriggerDeadband::default(),
+            trigger_right: TriggerDeadband::default(),
+            button_remap: self.button_remapping.clone(),
             disabled_buttons: std::collections::HashSet::new(),
         }
     }
 }
 
 pub struct ProfileManager {
-    profiles_dir: PathBuf
+    profiles_dir: PathBuf,
 }
 
 impl ProfileManager {
@@ -80,7 +84,8 @@ impl ProfileManager {
                 } else {
                     '_'
                 }
-            }).collect()
+            })
+            .collect()
     }
 
     pub fn save_profile(&self, profile: &Profile) -> Result<()> {
@@ -120,7 +125,7 @@ impl ProfileManager {
         Ok(())
     }
 
-    pub fn profile_exists(&self, name: &str) -> bool { 
+    pub fn profile_exists(&self, name: &str) -> bool {
         let filename = format!("{}.json", Self::sanitize_filename(name));
         self.profiles_dir.join(filename).exists()
     }
@@ -132,12 +137,12 @@ impl ProfileManager {
             for e in entries.flatten() {
                 let path = e.path();
 
-                if path.extension().and_then(|s| s.to_str()) == Some("json") 
+                if path.extension().and_then(|s| s.to_str()) == Some("json")
                     && let Ok(json) = fs::read_to_string(&path)
-                        && let Ok(profile) = serde_json::from_str::<Profile>(&json) {
-                            profiles.push(profile);
+                    && let Ok(profile) = serde_json::from_str::<Profile>(&json)
+                {
+                    profiles.push(profile);
                 }
-
             }
         }
 
