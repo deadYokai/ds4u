@@ -1,7 +1,8 @@
 workflow:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" 
-      when: never
+    - if: $CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api"
+      when: always
+    - when: never
 
 variables:
   CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
