@@ -85,7 +85,7 @@ struct DualSenseInputReport {
     reserved2: u8,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct BatteryInfo {
     pub capacity: u8,
     pub status: String,

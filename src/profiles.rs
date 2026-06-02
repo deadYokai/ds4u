@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+};
 
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
@@ -21,12 +25,16 @@ pub struct Profile {
     pub stick_left_curve: SensitivityCurve,
     pub stick_right_curve: SensitivityCurve,
     pub trigger_mode: TriggerMode,
+    pub trigger_feedback_position: u8,
     pub haptic_intensity: u8,
     pub gyro_sensetivity: f32,
     pub touchpad_enabled: bool,
     pub button_remapping: HashMap<Button, Button>,
+    pub disabled_buttons: HashSet<Button>,
     pub stick_left_deadzone: f32,
     pub stick_right_deadzone: f32,
+    pub trigger_left_deadband: TriggerDeadband,
+    pub trigger_right_deadband: TriggerDeadband,
 }
 
 impl Profile {
@@ -36,10 +44,47 @@ impl Profile {
             right_curve: self.stick_right_curve.clone(),
             left_deadzone: self.stick_left_deadzone,
             right_deadzone: self.stick_right_deadzone,
-            trigger_left: TriggerDeadband::default(),
-            trigger_right: TriggerDeadband::default(),
+            trigger_left: self.trigger_left_deadband.clone(),
+            trigger_right: self.trigger_right_deadband.clone(),
             button_remap: self.button_remapping.clone(),
-            disabled_buttons: std::collections::HashSet::new(),
+            disabled_buttons: self.disabled_buttons.clone(),
+        }
+    }
+
+    pub fn to_trigger_effect(&self) -> Option<(u8, [u8; 10])> {
+        match self.trigger_mode {
+            TriggerMode::Off => None,
+            TriggerMode::Feedback => {
+                let pos = self.trigger_feedback_position.min(9) as usize;
+                let str_ = self.haptic_intensity.clamp(1, 8);
+                let mut strengths = [0u8; 10];
+                for i in pos..10 {
+                    strengths[i] = str_;
+                }
+                let mut active_zones: u16 = 0;
+                let mut strength_zones: u32 = 0;
+                for i in 0..10 {
+                    if strengths[i] > 0 {
+                        let sv = ((strengths[i] - 1) & 0x07) as u32;
+                        strength_zones |= sv << (3 * i);
+                        active_zones |= 1 << i;
+                    }
+                }
+                let params: [u8; 10] = [
+                    (active_zones & 0xff) as u8,
+                    ((active_zones >> 8) & 0xff) as u8,
+                    (strength_zones & 0xff) as u8,
+                    ((strength_zones >> 8) & 0xff) as u8,
+                    ((strength_zones >> 16) & 0xff) as u8,
+                    ((strength_zones >> 24) & 0xff) as u8,
+                    0,
+                    0,
+                    0,
+                    0,
+                ];
+                Some((0x21, params))
+            }
+            _ => None,
         }
     }
 }
@@ -169,12 +214,16 @@ impl Default for Profile {
             stick_left_curve: SensitivityCurve::Default,
             stick_right_curve: SensitivityCurve::Default,
             trigger_mode: TriggerMode::Off,
+            trigger_feedback_position: 0,
             haptic_intensity: 0,
             gyro_sensetivity: 1.0,
             touchpad_enabled: true,
             button_remapping: HashMap::new(),
+            disabled_buttons: HashSet::new(),
             stick_left_deadzone: 0.0,
             stick_right_deadzone: 0.0,
+            trigger_left_deadband: TriggerDeadband::default(),
+            trigger_right_deadband: TriggerDeadband::default(),
         }
     }
 }

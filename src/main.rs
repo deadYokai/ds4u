@@ -2,6 +2,8 @@ use std::env;
 
 use crate::app::DS4UApp;
 
+use self::ipc::IpcClient;
+
 mod app;
 mod common;
 mod daemon;
@@ -23,6 +25,79 @@ fn main() -> Result<(), eframe::Error> {
     if args.iter().any(|a| a == "--daemon") {
         daemon::run_daemon();
         return Ok(());
+    }
+
+    if args.len() >= 2 {
+        let addr = ipc::daemon_endpoint();
+        let mut client = match IpcClient::try_connect(&addr) {
+            Some(c) => c,
+            None => {
+                eprintln!("ds4u daemon is not running");
+                std::process::exit(1);
+            }
+        };
+
+        match args[1].as_str() {
+            "--list-profiles" => {
+                match client.list_profiles() {
+                    Ok(list) => {
+                        for name in list {
+                            println!("{}", name);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
+            "--switch-profile" => {
+                let name = args.get(2).map(|s| s.as_str()).unwrap_or_else(|| {
+                    eprintln!("usage: ds4u --switch-profile <name>");
+                    std::process::exit(1);
+                });
+                match client.switch_profile(name) {
+                    Ok(_) => println!("switched to profile '{}'", name),
+                    Err(e) => {
+                        eprintln!("error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
+            "--reload-profile" => {
+                match client.reload_profile() {
+                    Ok(_) => println!("profile reloaded"),
+                    Err(e) => {
+                        eprintln!("error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
+            "--status" => {
+                match client.get_controller_info() {
+                    Ok(Some((serial, pid, is_bt))) => println!(
+                        "connected  serial={}  pid={:#06x}  {}",
+                        serial,
+                        pid,
+                        if is_bt { "bluetooth" } else { "usb" }
+                    ),
+                    Ok(None) => println!("no device"),
+                    Err(e) => {
+                        eprintln!("error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                match client.get_battery() {
+                    Ok(b) => println!("battery    {:?}", b),
+                    Err(_) => {}
+                }
+                return Ok(());
+            }
+            _ => {}
+        }
     }
 
     let options = eframe::NativeOptions {

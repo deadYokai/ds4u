@@ -162,6 +162,11 @@ pub enum DaemonCommand {
     SetLightbarEffect {
         effect: LightbarEffect,
     },
+    SwitchProfile {
+        name: String,
+    },
+    ListProfiles,
+    ReloadProfile,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -185,6 +190,12 @@ pub enum DaemonResponse {
         is_bt: bool,
     },
     NoDevice,
+    ProfileList {
+        profiles: Vec<String>,
+    },
+    ActiveProfile {
+        name: String,
+    },
 }
 
 pub struct IpcClient {
@@ -393,6 +404,32 @@ impl IpcClient {
             DaemonResponse::Ok => Ok(()),
             DaemonResponse::Error { message } => bail!("{}", message),
             _ => Ok(()),
+        }
+    }
+
+    pub fn switch_profile(&mut self, name: &str) -> Result<()> {
+        match self.request(DaemonCommand::SwitchProfile {
+            name: name.to_string(),
+        })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn reload_profile(&mut self) -> Result<()> {
+        match self.request(DaemonCommand::ReloadProfile)? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn list_profiles(&mut self) -> Result<Vec<String>> {
+        match self.request(DaemonCommand::ListProfiles)? {
+            DaemonResponse::ProfileList { profiles } => Ok(profiles),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => bail!("Unexpected response"),
         }
     }
 }

@@ -63,6 +63,8 @@ struct DaemonState {
     lightbar_color: Mutex<(u8, u8, u8, u8)>,
     player_leds: Mutex<u8>,
     mic_enabled: Mutex<bool>,
+    active_profile_name: Mutex<String>,
+    trigger_effect: Mutex<Option<(u8, [u8; 10])>>,
 }
 
 impl DaemonState {
@@ -75,8 +77,37 @@ impl DaemonState {
             lightbar_color: Mutex::new((0, 128, 255, 255)),
             player_leds: Mutex::new(1),
             mic_enabled: Mutex::new(false),
+            active_profile_name: Mutex::new(String::new()),
+            trigger_effect: Mutex::new(None),
         })
     }
+}
+
+fn apply_profile_to_state(state: &Arc<DaemonState>, name: &str) -> String {
+    let pm = ProfileManager::new();
+    let profile = if pm.profile_exists(name) {
+        pm.load_profile(name).ok()
+    } else if pm.profile_exists("Default") {
+        pm.load_profile("Default").ok()
+    } else {
+        Some(pm.ensure_default_exists())
+    };
+
+    let Some(p) = profile else {
+        return String::new();
+    };
+
+    *state.active_transform.lock().unwrap() = p.to_input_transform();
+    let r = (p.lightbar_r * 255.0) as u8;
+    let g = (p.lightbar_g * 255.0) as u8;
+    let b = (p.lightbar_b * 255.0) as u8;
+    let br = p.lightbar_brightness as u8;
+    *state.lightbar_color.lock().unwrap() = (r, g, b, br);
+    *state.player_leds.lock().unwrap() = p.player_leds;
+    *state.mic_enabled.lock().unwrap() = p.mic_enabled;
+    *state.trigger_effect.lock().unwrap() = p.to_trigger_effect();
+
+    p.name.clone()
 }
 
 pub fn run_daemon() {
@@ -94,31 +125,14 @@ pub fn run_daemon() {
     {
         let sm = SettingsManager::new();
         let settings = sm.load();
-        let pm = ProfileManager::new();
-
         let name = if settings.profile.is_empty() {
-            "Default".to_string()
+            "Default"
         } else {
-            settings.profile
+            &settings.profile
         };
-
-        let profile = if pm.profile_exists(&name) {
-            pm.load_profile(&name).ok()
-        } else {
-            Some(pm.ensure_default_exists())
-        };
-
-        if let Some(p) = profile {
-            *state.active_transform.lock().unwrap() = p.to_input_transform();
-            let r = (p.lightbar_r * 255.0) as u8;
-            let g = (p.lightbar_g * 255.0) as u8;
-            let b = (p.lightbar_b * 255.0) as u8;
-            let br = p.lightbar_brightness as u8;
-            *state.lightbar_color.lock().unwrap() = (r, g, b, br);
-            *state.player_leds.lock().unwrap() = p.player_leds;
-            *state.mic_enabled.lock().unwrap() = p.mic_enabled;
-            println!("{} autoloaded profile '{}'", TAG, p.name);
-        }
+        let loaded = apply_profile_to_state(&state, name);
+        *state.active_profile_name.lock().unwrap() = loaded.clone();
+        println!("{} profile '{}' loaded", TAG, loaded);
     }
 
     {
@@ -160,6 +174,10 @@ fn device_connection_loop(state: Arc<DaemonState>) {
 
                 let mic = *state.mic_enabled.lock().unwrap();
                 let _ = ds.set_mic(mic);
+
+                if let Some((eff, params)) = *state.trigger_effect.lock().unwrap() {
+                    let _ = ds.set_trigger_effect(true, true, eff, &params);
+                }
 
                 *dev = Some(ds);
             }
@@ -243,6 +261,69 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                     }
                 }
                 send(&mut writer, DaemonResponse::Ok);
+            }
+
+            DaemonCommand::SwitchProfile { name } => {
+                let loaded = apply_profile_to_state(&state, &name);
+                *state.active_profile_name.lock().unwrap() = loaded.clone();
+                let sm = SettingsManager::new();
+                let mut settings = sm.load();
+                settings.profile = loaded.clone();
+                sm.save(&settings);
+                {
+                    let (r, g, b, br) = *state.lightbar_color.lock().unwrap();
+                    let leds = *state.player_leds.lock().unwrap();
+                    let mic = *state.mic_enabled.lock().unwrap();
+                    let trig = *state.trigger_effect.lock().unwrap();
+                    if let Some(ds) = state.device.lock().unwrap().as_mut() {
+                        let _ = ds.set_lightbar(r, g, b, br);
+                        let _ = ds.set_player_leds(leds);
+                        let _ = ds.set_mic(mic);
+                        match trig {
+                            Some((eff, params)) => {
+                                let _ = ds.set_trigger_effect(true, true, eff, &params);
+                            }
+                            None => {
+                                let _ = ds.set_trigger_off();
+                            }
+                        }
+                    }
+                }
+                println!("{} switched to profile '{}'", TAG, loaded);
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
+            DaemonCommand::ReloadProfile => {
+                let name = state.active_profile_name.lock().unwrap().clone();
+                let name = if name.is_empty() {
+                    "Default".to_string()
+                } else {
+                    name
+                };
+                apply_profile_to_state(&state, &name);
+                println!("{} reloaded profile '{}'", TAG, name);
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
+            DaemonCommand::ListProfiles => {
+                let pm = ProfileManager::new();
+                let profiles = pm.list_profiles().into_iter().map(|p| p.name).collect();
+                send(&mut writer, DaemonResponse::ProfileList { profiles });
+            }
+
+            cmd @ (DaemonCommand::GetBattery
+            | DaemonCommand::GetInputState
+            | DaemonCommand::GetFirmwareInfo
+            | DaemonCommand::GetControllerInfo) => {
+                let transform = state.active_transform.lock().unwrap().clone();
+                let mut dev = state.device.lock().unwrap();
+                match dev.as_mut() {
+                    None => send(&mut writer, DaemonResponse::NoDevice),
+                    Some(ds) => {
+                        let resp = dispatch(ds, cmd, &transform);
+                        send(&mut writer, resp);
+                    }
+                }
             }
 
             cmd => {
@@ -449,5 +530,8 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform) 
         DaemonCommand::SetUpdateMode { .. } => unreachable!(),
         DaemonCommand::SetInputTransform { .. } => unreachable!(),
         DaemonCommand::ClearInputTransform => unreachable!(),
+        DaemonCommand::SwitchProfile { .. } => unreachable!(),
+        DaemonCommand::ReloadProfile => unreachable!(),
+        DaemonCommand::ListProfiles => unreachable!(),
     }
 }
