@@ -1,3 +1,9 @@
+[![Stand With Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner-direct-single.svg)](https://stand-with-ukraine.pp.ua)
+
+[![Stand For Ukraine](https://img.shields.io/badge/Stand_For_Ukraine-find_a_charity-blue?style=for-the-badge)](https://standforukraine.com/)
+
+---
+
 [![Gitea](https://img.shields.io/badge/Gitea-Repo-black)](https://git.yokai.digital/deadYokai/ds4u)
 [![GitLab](https://img.shields.io/badge/GitLab-Mirror-orange)](https://gitlab.com/deadYokai/ds4u)
 [![GitHub](https://img.shields.io/badge/GitHub-Mirror-black)](https://github.com/deadYokai/ds4u)
@@ -147,8 +153,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 [![Paypal](https://img.shields.io/badge/Paypal-black?style=for-the-badge&logo=paypal)](https://www.paypal.com/donate/?hosted_button_id=RLGYGXH4LZ8PC)
 [![Monobank](https://img.shields.io/badge/Monobank-black?style=for-the-badge)](https://send.monobank.ua/jar/9oVcUiHxPd)
 [![Liberapay](https://img.shields.io/liberapay/receives/deadYokai.svg?logo=liberapay&style=for-the-badge&logoColor=white&labelColor=black&color=orange&label=Liberapay)](https://liberapay.com/deadYokai/donate)
-
----
-
-[![Stand For Ukraine](https://img.shields.io/badge/Stand_For_Ukraine-find_a_charity-blue?style=for-the-badge)](https://standforukraine.com/)
 
