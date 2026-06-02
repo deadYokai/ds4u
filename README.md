@@ -152,9 +152,9 @@ All color values are `[R, G, B]` in the 0–255 range.
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Todo
-- [] make better UX/UI (full redesign)
-- [] other possible issues
-- [] DualSense Egde support
+- [ ] make better UX/UI (full redesign)
+- [ ] other possible issues
+- [ ] DualSense Egde support
 
 ## Support:
 [![MySite](https://img.shields.io/badge/yokai.digital-black?style=for-the-badge)](https://yokai.digital)
