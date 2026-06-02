@@ -17,10 +17,12 @@ serde_json = "1.0.149"
 ureq = { version = "3.2.0", features = ["native-tls", "json"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-hidapi = { version = "2.6.4", default-features = false, features = ["linux-native"] }
+hidapi = { version = "2.6.6", default-features = false, features = [
+  "linux-native",
+] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-hidapi = { version = "2.6.4" }
+hidapi = { version = "2.6.6" }
 
 [features]
 default = []
@@ -30,12 +32,12 @@ unstable = []
 roxmltree = "0.21.1"
 
 [profile.release]
-opt-level     = 3
-lto           = "thin"
+opt-level = 3
+lto = "thin"
 codegen-units = 1
-strip         = "symbols"
+strip = "symbols"
 
 [profile.dev-release]
-inherits      = "release"
-debug         = false
-strip         = "none"
+inherits = "release"
+debug = false
+strip = "none"

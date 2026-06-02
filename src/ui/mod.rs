@@ -12,12 +12,15 @@ use crate::theme::{self, ThemeColors};
 
 pub mod audio;
 pub mod firmware;
+pub mod gyroscope;
 pub mod haptics;
 pub mod inputs;
 pub mod lightbar;
+pub mod profiles;
 pub mod settings;
 pub mod sidebar;
 pub mod sticks;
+pub mod touchpad;
 pub mod triggers;
 
 fn ambient(ctx: &egui::Context, theme: &theme::Theme) {
@@ -79,6 +82,9 @@ impl DS4UApp {
                 Section::Advanced => self.render_advanced(ui),
                 Section::Inputs => self.render_inputs_section(ui),
                 Section::Settings => self.render_settings_section(ui),
+                Section::Gyroscope => self.render_gyroscope_section(ui),
+                Section::Touchpad => self.render_touchpad_section(ui),
+                Section::Profiles => self.render_profiles_section(ui),
             }
 
             ui.add_space(30.0);
@@ -140,7 +146,12 @@ impl App for DS4UApp {
             }
             ctx.request_repaint_after_secs(0.2);
         } else {
-            if self.active_section == Section::Inputs {
+            let needs_input = matches!(
+                self.active_section,
+                Section::Inputs | Section::Sticks | Section::Touchpad | Section::Gyroscope
+            );
+
+            if needs_input {
                 if !self.input_polling {
                     self.start_input_polling();
                 }
@@ -153,17 +164,22 @@ impl App for DS4UApp {
                         self.controller_state = Some(state);
                     }
                 }
-
-                ctx.request_repaint();
             } else if self.input_polling {
                 self.stop_input_polling();
+            }
+
+            if needs_input || self.active_section == Section::Haptics {
+                ctx.request_repaint();
             }
 
             self.check_controller_connection();
             if self.last_battery_update.elapsed() > Duration::from_secs(2) {
                 self.update_battery();
             }
-            ctx.request_repaint_after_secs(2.0);
+
+            if !needs_input && self.active_section != Section::Haptics {
+                ctx.request_repaint_after_secs(2.0);
+            }
         }
 
         self.check_firmware_progress();

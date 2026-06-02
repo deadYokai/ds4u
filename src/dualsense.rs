@@ -66,6 +66,8 @@ const DS_BATTERY_THRESHOLD: u8 = 10;
 const DS_TRIGGER_EFFECT_OFF: u8 = 0x05;
 const DS_TRIGGER_EFFECT_FEEDBACK: u8 = 0x21;
 
+const DS_FEATURE_REPORT_FIRMWARE_INFO: u8 = 0x20;
+
 const CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 
 #[repr(C, packed)]
@@ -315,7 +317,7 @@ Please connect your controller via USB or Bluetooth."
 
     pub fn get_firmware_info(&self) -> Result<(u16, String, String)> {
         let mut buf = vec![0u8; DS_INPUT_REPORT_USB_SIZE];
-        buf[0] = 0x20;
+        buf[0] = DS_FEATURE_REPORT_FIRMWARE_INFO;
 
         let size = self
             .device
@@ -404,7 +406,6 @@ Please connect your controller via USB or Bluetooth."
         self.send_output_report(&mut buf)
     }
 
-    // TODO: change to reset? needed more research
     pub fn set_lightbar_enabled(&mut self, enabled: bool) -> Result<()> {
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
@@ -478,6 +479,17 @@ Please connect your controller via USB or Bluetooth."
         self.send_output_report(&mut buf)
     }
 
+    pub fn set_rumble(&mut self, left: u8, right: u8) -> Result<()> {
+        let mut buf = self.init_output_report();
+        let offset = if self.is_bt { 3 } else { 1 };
+
+        buf[offset] |= DS_OUTPUT_VALID_FLAG0_COMPATIBLE_VIBRATION;
+        buf[offset + 2] = right;
+        buf[offset + 3] = left;
+
+        self.send_output_report(&mut buf)
+    }
+
     pub fn set_mic(&mut self, enabled: bool) -> Result<()> {
         let mut buf = self.init_output_report();
         let offset = if self.is_bt { 3 } else { 1 };
@@ -533,6 +545,37 @@ Please connect your controller via USB or Bluetooth."
         buf[offset + 21] = mode;
         for (i, &p) in params.iter().enumerate().take(10) {
             buf[offset + 22 + i] = p;
+        }
+
+        self.send_output_report(&mut buf)
+    }
+
+    pub fn set_trigger_effects(
+        &mut self,
+        left: Option<(u8, [u8; 10])>,
+        right: Option<(u8, [u8; 10])>,
+    ) -> Result<()> {
+        let mut buf = self.init_output_report();
+        let offset = if self.is_bt { 3 } else { 1 };
+
+        if let Some((mode, params)) = right {
+            buf[offset] |= DS_OUTPUT_VALID_FLAG0_RIGHT_TRIGGER_MOTOR_ENABLE;
+            buf[offset + 10] = mode;
+            for (i, &p) in params.iter().enumerate().take(10) {
+                buf[offset + 11 + i] = p;
+            }
+        }
+
+        if let Some((mode, params)) = left {
+            buf[offset] |= DS_OUTPUT_VALID_FLAG0_LEFT_TRIGGER_MOTOR_ENABLE;
+            buf[offset + 21] = mode;
+            for (i, &p) in params.iter().enumerate().take(10) {
+                buf[offset + 22 + i] = p;
+            }
+        }
+
+        if left.is_none() && right.is_none() {
+            return Ok(());
         }
 
         self.send_output_report(&mut buf)

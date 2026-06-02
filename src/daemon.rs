@@ -1,5 +1,4 @@
 use std::{
-    fs,
     io::{BufRead, BufReader, Write},
     sync::{
         Arc, Mutex,
@@ -12,7 +11,7 @@ use std::{
 use hidapi::HidApi;
 
 use crate::{
-    common::LightbarEffect,
+    common::{HapticPattern, LightbarEffect},
     dualsense::DualSense,
     ipc::{
         DaemonCommand, DaemonResponse, DaemonStream, IpcClient, addr_display, bind_daemon,
@@ -20,7 +19,7 @@ use crate::{
     },
     profiles::ProfileManager,
     settings::SettingsManager,
-    transform::InputTransform,
+    transform::{GyroProcessor, InputTransform},
 };
 
 const TAG: &str = "[ds4u daemon]";
@@ -64,7 +63,10 @@ struct DaemonState {
     player_leds: Mutex<u8>,
     mic_enabled: Mutex<bool>,
     active_profile_name: Mutex<String>,
-    trigger_effect: Mutex<Option<(u8, [u8; 10])>>,
+    trigger_left: Mutex<Option<(u8, [u8; 10])>>,
+    trigger_right: Mutex<Option<(u8, [u8; 10])>>,
+    haptic: Mutex<(HapticPattern, u8, f32)>,
+    gyro: Mutex<GyroProcessor>,
 }
 
 impl DaemonState {
@@ -78,7 +80,10 @@ impl DaemonState {
             player_leds: Mutex::new(1),
             mic_enabled: Mutex::new(false),
             active_profile_name: Mutex::new(String::new()),
-            trigger_effect: Mutex::new(None),
+            trigger_left: Mutex::new(None),
+            trigger_right: Mutex::new(None),
+            haptic: Mutex::new((HapticPattern::None, 0, 1.0)),
+            gyro: Mutex::new(GyroProcessor::default()),
         })
     }
 }
@@ -105,9 +110,31 @@ fn apply_profile_to_state(state: &Arc<DaemonState>, name: &str) -> String {
     *state.lightbar_color.lock().unwrap() = (r, g, b, br);
     *state.player_leds.lock().unwrap() = p.player_leds;
     *state.mic_enabled.lock().unwrap() = p.mic_enabled;
-    *state.trigger_effect.lock().unwrap() = p.to_trigger_effect();
+
+    use crate::common::TriggerMode;
+    *state.trigger_left.lock().unwrap() = match p.trigger_left_config.mode {
+        TriggerMode::Off => None,
+        _ => Some(p.trigger_left_config.to_effect()),
+    };
+    *state.trigger_right.lock().unwrap() = match p.trigger_right_config.mode {
+        TriggerMode::Off => None,
+        _ => Some(p.trigger_right_config.to_effect()),
+    };
+
+    *state.haptic.lock().unwrap() = (p.haptic_pattern, p.haptic_strength, p.haptic_speed);
+    *state.gyro.lock().unwrap() = p.to_gyro_processor();
 
     p.name.clone()
+}
+
+fn push_triggers_to_device(state: &Arc<DaemonState>) {
+    let left = *state.trigger_left.lock().unwrap();
+    let right = *state.trigger_right.lock().unwrap();
+    if let Some(ds) = state.device.lock().unwrap().as_mut() {
+        let l = left.or(Some((0x05, [0u8; 10])));
+        let r = right.or(Some((0x05, [0u8; 10])));
+        let _ = ds.set_trigger_effects(l, r);
+    }
 }
 
 pub fn run_daemon() {
@@ -145,6 +172,11 @@ pub fn run_daemon() {
         thread::spawn(move || effect_loop(s));
     }
 
+    {
+        let s = Arc::clone(&state);
+        thread::spawn(move || haptic_loop(s));
+    }
+
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
@@ -175,9 +207,11 @@ fn device_connection_loop(state: Arc<DaemonState>) {
                 let mic = *state.mic_enabled.lock().unwrap();
                 let _ = ds.set_mic(mic);
 
-                if let Some((eff, params)) = *state.trigger_effect.lock().unwrap() {
-                    let _ = ds.set_trigger_effect(true, true, eff, &params);
-                }
+                let tl = *state.trigger_left.lock().unwrap();
+                let tr = *state.trigger_right.lock().unwrap();
+                let l = tl.or(Some((0x05, [0u8; 10])));
+                let r2 = tr.or(Some((0x05, [0u8; 10])));
+                let _ = ds.set_trigger_effects(l, r2);
 
                 *dev = Some(ds);
             }
@@ -263,6 +297,57 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                 send(&mut writer, DaemonResponse::Ok);
             }
 
+            DaemonCommand::SetHapticPattern {
+                pattern,
+                strength,
+                speed,
+            } => {
+                let restoring = matches!(pattern, HapticPattern::None);
+                *state.haptic.lock().unwrap() = (pattern, strength.min(7), speed.max(0.05));
+                if restoring && let Some(ds) = state.device.lock().unwrap().as_mut() {
+                    let _ = ds.set_vibration(0, 0);
+                }
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
+            DaemonCommand::SetGyro {
+                enabled,
+                smoothing,
+                sensitivity,
+            } => {
+                let mut g = state.gyro.lock().unwrap();
+                g.enabled = enabled;
+                g.smoothing = smoothing.clamp(0.0, 0.95);
+                g.sensitivity = sensitivity.max(0.0);
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
+            DaemonCommand::SetTriggerEffects { left, right } => {
+                if let Some(l) = left {
+                    *state.trigger_left.lock().unwrap() = Some(l);
+                }
+                if let Some(r) = right {
+                    *state.trigger_right.lock().unwrap() = Some(r);
+                }
+                if state.update_in_progress.load(Ordering::Relaxed) {
+                    send(
+                        &mut writer,
+                        DaemonResponse::Error {
+                            message: "Firmware update in progress".to_string(),
+                        },
+                    );
+                    continue;
+                }
+                let l = *state.trigger_left.lock().unwrap();
+                let r = *state.trigger_right.lock().unwrap();
+                if let Some(ds) = state.device.lock().unwrap().as_mut() {
+                    let lf = l.or(Some((0x05, [0u8; 10])));
+                    let rt = r.or(Some((0x05, [0u8; 10])));
+                    let _ = ds.set_trigger_effects(lf, rt);
+                }
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
             DaemonCommand::SwitchProfile { name } => {
                 let loaded = apply_profile_to_state(&state, &name);
                 *state.active_profile_name.lock().unwrap() = loaded.clone();
@@ -274,21 +359,13 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                     let (r, g, b, br) = *state.lightbar_color.lock().unwrap();
                     let leds = *state.player_leds.lock().unwrap();
                     let mic = *state.mic_enabled.lock().unwrap();
-                    let trig = *state.trigger_effect.lock().unwrap();
                     if let Some(ds) = state.device.lock().unwrap().as_mut() {
                         let _ = ds.set_lightbar(r, g, b, br);
                         let _ = ds.set_player_leds(leds);
                         let _ = ds.set_mic(mic);
-                        match trig {
-                            Some((eff, params)) => {
-                                let _ = ds.set_trigger_effect(true, true, eff, &params);
-                            }
-                            None => {
-                                let _ = ds.set_trigger_off();
-                            }
-                        }
                     }
                 }
+                push_triggers_to_device(&state);
                 println!("{} switched to profile '{}'", TAG, loaded);
                 send(&mut writer, DaemonResponse::Ok);
             }
@@ -301,6 +378,7 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                     name
                 };
                 apply_profile_to_state(&state, &name);
+                push_triggers_to_device(&state);
                 println!("{} reloaded profile '{}'", TAG, name);
                 send(&mut writer, DaemonResponse::Ok);
             }
@@ -309,6 +387,37 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                 let pm = ProfileManager::new();
                 let profiles = pm.list_profiles().into_iter().map(|p| p.name).collect();
                 send(&mut writer, DaemonResponse::ProfileList { profiles });
+            }
+
+            DaemonCommand::SaveProfile { profile } => {
+                let pm = ProfileManager::new();
+                match pm.save_profile(&profile) {
+                    Ok(_) => send(&mut writer, DaemonResponse::Ok),
+                    Err(e) => send(
+                        &mut writer,
+                        DaemonResponse::Error {
+                            message: e.to_string(),
+                        },
+                    ),
+                }
+            }
+
+            DaemonCommand::DeleteProfile { name } => {
+                let pm = ProfileManager::new();
+                match pm.delete_profile(&name) {
+                    Ok(_) => send(&mut writer, DaemonResponse::Ok),
+                    Err(e) => send(
+                        &mut writer,
+                        DaemonResponse::Error {
+                            message: e.to_string(),
+                        },
+                    ),
+                }
+            }
+
+            DaemonCommand::GetActiveProfile => {
+                let name = state.active_profile_name.lock().unwrap().clone();
+                send(&mut writer, DaemonResponse::ActiveProfile { name });
             }
 
             cmd @ (DaemonCommand::GetBattery
@@ -349,6 +458,32 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                         send(&mut writer, DaemonResponse::Ok);
                         continue;
                     }
+                }
+
+                if let DaemonCommand::SetTriggerEffect {
+                    left,
+                    right,
+                    effect_type,
+                    params,
+                } = &cmd
+                {
+                    if *left {
+                        *state.trigger_left.lock().unwrap() = if *effect_type == 0x05 {
+                            None
+                        } else {
+                            Some((*effect_type, *params))
+                        };
+                    }
+                    if *right {
+                        *state.trigger_right.lock().unwrap() = if *effect_type == 0x05 {
+                            None
+                        } else {
+                            Some((*effect_type, *params))
+                        };
+                    }
+                } else if let DaemonCommand::SetTriggerOff = &cmd {
+                    *state.trigger_left.lock().unwrap() = None;
+                    *state.trigger_right.lock().unwrap() = None;
                 }
 
                 let transform = state.active_transform.lock().unwrap().clone();
@@ -442,6 +577,57 @@ fn effect_loop(state: Arc<DaemonState>) {
     }
 }
 
+fn haptic_loop(state: Arc<DaemonState>) {
+    let start = Instant::now();
+    let mut last_amp: u8 = 255;
+    loop {
+        sleep(Duration::from_millis(40));
+        if state.update_in_progress.load(Ordering::Relaxed) {
+            continue;
+        }
+
+        let (pattern, strength, speed) = *state.haptic.lock().unwrap();
+        if matches!(pattern, HapticPattern::None) {
+            if last_amp != 0 {
+                let mut dev = state.device.lock().unwrap();
+                if let Some(ds) = dev.as_mut() {
+                    let _ = ds.set_rumble(0, 0);
+                }
+                last_amp = 0;
+            }
+            continue;
+        }
+
+        let t = start.elapsed().as_secs_f32();
+        let s = (strength.min(7) as f32 / 7.0).clamp(0.0, 1.0);
+        let intensity = match pattern {
+            HapticPattern::None => 0.0,
+            HapticPattern::Constant => s,
+            HapticPattern::Pulse => {
+                let phase = (t * speed) % 1.0;
+                if phase < 0.5 { s } else { 0.0 }
+            }
+            HapticPattern::Ramp => {
+                let phase = (t * speed) % 1.0;
+                s * phase
+            }
+            HapticPattern::Wave => {
+                let v = (t * speed * std::f32::consts::TAU).sin() * 0.5 + 0.5;
+                s * v
+            }
+        };
+
+        let amp = (intensity.clamp(0.0, 1.0) * 255.0).round() as u8;
+        if amp != last_amp {
+            let mut dev = state.device.lock().unwrap();
+            if let Some(ds) = dev.as_mut() {
+                let _ = ds.set_rumble(amp, amp);
+            }
+            last_amp = amp;
+        }
+    }
+}
+
 fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform) -> DaemonResponse {
     macro_rules! ok_or_err {
         ($e:expr) => {
@@ -525,13 +711,18 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform) 
 
         DaemonCommand::SetVolume { volume } => ok_or_err!(ds.set_volume(volume)),
 
-        DaemonCommand::SetLightbarEffect { .. } => unreachable!(),
-
-        DaemonCommand::SetUpdateMode { .. } => unreachable!(),
-        DaemonCommand::SetInputTransform { .. } => unreachable!(),
-        DaemonCommand::ClearInputTransform => unreachable!(),
-        DaemonCommand::SwitchProfile { .. } => unreachable!(),
-        DaemonCommand::ReloadProfile => unreachable!(),
-        DaemonCommand::ListProfiles => unreachable!(),
+        DaemonCommand::SetTriggerEffects { .. }
+        | DaemonCommand::SetLightbarEffect { .. }
+        | DaemonCommand::SetHapticPattern { .. }
+        | DaemonCommand::SetGyro { .. }
+        | DaemonCommand::SetUpdateMode { .. }
+        | DaemonCommand::SetInputTransform { .. }
+        | DaemonCommand::ClearInputTransform
+        | DaemonCommand::SwitchProfile { .. }
+        | DaemonCommand::ReloadProfile
+        | DaemonCommand::ListProfiles
+        | DaemonCommand::SaveProfile { .. }
+        | DaemonCommand::DeleteProfile { .. }
+        | DaemonCommand::GetActiveProfile => unreachable!(),
     }
 }

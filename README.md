@@ -12,6 +12,10 @@
 
 Native Linux Gui tool for configuring DualSense controllers.
 
+> [!note]
+> **DualSense Egde** support is not tested and officially currently not supported;
+> If you have problems with this device, please write an *Issue*
+
 ![app preview](preview/app.png)
 
 ## Features
@@ -147,6 +151,10 @@ All color values are `[R, G, B]` in the 0–255 range.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Todo
+- [] make better UX/UI (full redesign)
+- [] other possible issues
+- [] DualSense Egde support
 
 ## Support:
 [![MySite](https://img.shields.io/badge/yokai.digital-black?style=for-the-badge)](https://yokai.digital)

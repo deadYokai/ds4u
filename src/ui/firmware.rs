@@ -105,6 +105,13 @@ impl DS4UApp {
                         ui.end_row();
                     });
 
+                if connected {
+                    ui.add_space(10.0);
+                    if ui.small_button("↻ Re-read firmware info").clicked() {
+                        self.refresh_firmware_info();
+                    }
+                }
+
                 if let Some(needs_update) = b {
                     ui.add_space(10.0);
                     if needs_update {

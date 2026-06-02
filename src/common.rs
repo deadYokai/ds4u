@@ -12,7 +12,7 @@ pub enum MicLedState {
     Pulse,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Clone)]
+#[derive(Deserialize, Serialize, PartialEq, Clone, Debug)]
 pub enum TriggerMode {
     Off,
     Feedback,
@@ -49,6 +49,21 @@ pub enum LightbarEffect {
 }
 
 impl Default for LightbarEffect {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
+pub enum HapticPattern {
+    None,
+    Constant,
+    Pulse,
+    Ramp,
+    Wave,
+}
+
+impl Default for HapticPattern {
     fn default() -> Self {
         Self::None
     }

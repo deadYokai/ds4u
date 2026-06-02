@@ -1,4 +1,6 @@
-use crate::common::{MicLedState, SensitivityCurve, SpeakerMode, TriggerMode};
+use crate::common::{HapticPattern, MicLedState, SensitivityCurve, SpeakerMode, TriggerMode};
+use crate::profiles::TriggerConfig;
+use crate::transform::GyroProcessor;
 
 #[derive(Debug, Clone)]
 pub(crate) enum ProgressUpdate {
@@ -19,6 +21,9 @@ pub(crate) enum Section {
     Advanced,
     Inputs,
     Settings,
+    Gyroscope,
+    Touchpad,
+    Profiles,
 }
 
 pub(crate) struct LightbarState {
@@ -34,17 +39,18 @@ pub(crate) struct MicrophoneState {
     pub(crate) led_state: MicLedState,
 }
 
-pub(crate) struct TriggerState {
-    pub(crate) mode: TriggerMode,
-    pub(crate) position: u8,
-    pub(crate) strength: u8,
-}
-
 pub(crate) struct StickSettings {
-    pub(crate) left_curve: SensitivityCurve,
-    pub(crate) right_curve: SensitivityCurve,
+    pub(crate) left_curve: crate::common::SensitivityCurve,
+    pub(crate) right_curve: crate::common::SensitivityCurve,
     pub(crate) left_deadzone: f32,
     pub(crate) right_deadzone: f32,
+    pub(crate) left_outer_deadzone: f32,
+    pub(crate) right_outer_deadzone: f32,
+    pub(crate) left_invert_x: bool,
+    pub(crate) left_invert_y: bool,
+    pub(crate) right_invert_x: bool,
+    pub(crate) right_invert_y: bool,
+    pub(crate) swap: bool,
 }
 
 pub(crate) struct AudioSettings {
@@ -55,4 +61,23 @@ pub(crate) struct AudioSettings {
 pub(crate) struct VibrationSettings {
     pub(crate) rumble: u8,
     pub(crate) trigger: u8,
+}
+pub(crate) struct GyroState {
+    pub(crate) processor: GyroProcessor,
+}
+
+pub(crate) struct TouchpadState {
+    pub(crate) enabled: bool,
+    pub(crate) show_overlay: bool,
+}
+
+pub(crate) struct HapticState {
+    pub(crate) pattern: HapticPattern,
+    pub(crate) strength: u8,
+    pub(crate) speed: f32,
+}
+
+pub(crate) struct TriggersState {
+    pub(crate) left: TriggerConfig,
+    pub(crate) right: TriggerConfig,
 }

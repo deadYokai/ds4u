@@ -10,8 +10,132 @@ use serde::{Deserialize, Serialize};
 use crate::{
     common::*,
     inputs::Button,
-    transform::{InputTransform, TriggerDeadband},
+    transform::{GyroProcessor, InputTransform, TriggerDeadband},
 };
+
+#[derive(Clone, Deserialize, Serialize, PartialEq, Debug)]
+pub struct TriggerConfig {
+    pub mode: TriggerMode,
+    pub start: u8,
+    pub end: u8,
+    pub strength: u8,
+    pub frequency: u8,
+    pub deadband: TriggerDeadband,
+}
+
+impl Default for TriggerConfig {
+    fn default() -> Self {
+        Self {
+            mode: TriggerMode::Off,
+            start: 2,
+            end: 7,
+            strength: 5,
+            frequency: 30,
+            deadband: TriggerDeadband::default(),
+        }
+    }
+}
+
+impl TriggerConfig {
+    pub fn to_effect(&self) -> (u8, [u8; 10]) {
+        match self.mode {
+            TriggerMode::Off => (0x05, [0; 10]),
+            TriggerMode::Feedback => {
+                let start = self.start.min(9) as usize;
+                let end = self.end.clamp(self.start, 9) as usize;
+                let strength = self.strength.clamp(1, 8);
+                let mut active_zones: u16 = 0;
+                let mut strength_zones: u32 = 0;
+                for i in start..=end {
+                    let sv = ((strength - 1) & 0x07) as u32;
+                    strength_zones |= sv << (3 * i);
+                    active_zones |= 1 << i;
+                }
+                let mut p = [0u8; 10];
+                p[0] = (active_zones & 0xff) as u8;
+                p[1] = ((active_zones >> 8) & 0xff) as u8;
+                p[2] = (strength_zones & 0xff) as u8;
+                p[3] = ((strength_zones >> 8) & 0xff) as u8;
+                p[4] = ((strength_zones >> 16) & 0xff) as u8;
+                p[5] = ((strength_zones >> 24) & 0xff) as u8;
+                (0x21, p)
+            }
+            TriggerMode::Weapon => {
+                let start = self.start.clamp(2, 7);
+                let end = self.end.clamp(start + 1, 8);
+                let strength = self.strength.clamp(1, 8);
+                let mut p = [0u8; 10];
+                let positions: u16 = (1u16 << start) | (1u16 << end);
+                p[0] = (positions & 0xff) as u8;
+                p[1] = ((positions >> 8) & 0xff) as u8;
+                p[2] = strength - 1;
+                (0x25, p)
+            }
+            TriggerMode::Bow => {
+                let start = self.start.min(8);
+                let end = self.end.clamp(start + 1, 8);
+                let strength = self.strength.clamp(1, 8);
+                let snap = self.strength.clamp(1, 8);
+                let mut p = [0u8; 10];
+                let positions: u16 = (1u16 << start) | (1u16 << end);
+                let force: u32 = ((strength - 1) as u32 & 0x07) | (((snap - 1) as u32 & 0x07) << 3);
+                p[0] = (positions & 0xff) as u8;
+                p[1] = ((positions >> 8) & 0xff) as u8;
+                p[2] = (force & 0xff) as u8;
+                p[3] = ((force >> 8) & 0xff) as u8;
+                (0x22, p)
+            }
+            TriggerMode::Galloping => {
+                let start = self.start.min(8);
+                let end = self.end.clamp(start + 1, 9);
+                let first_foot = self.strength.saturating_sub(1).min(7);
+                let second_foot = first_foot.saturating_add(1).min(7);
+                let freq = self.frequency.max(1);
+                let mut p = [0u8; 10];
+                p[0] = start;
+                p[1] = end;
+                p[2] = (second_foot << 4) | first_foot;
+                p[3] = freq;
+                (0x23, p)
+            }
+            TriggerMode::Vibration => {
+                let start = self.start.min(9) as usize;
+                let end = self.end.clamp(self.start, 9) as usize;
+                let strength = self.strength.clamp(1, 8);
+                let freq = self.frequency.max(1);
+                let mut active_zones: u16 = 0;
+                let mut amp_zones: u32 = 0;
+                for i in start..=end {
+                    active_zones |= 1 << i;
+                    amp_zones |= ((strength - 1) as u32 & 0x07) << (3 * i);
+                }
+                let mut p = [0u8; 10];
+                p[0] = (active_zones & 0xff) as u8;
+                p[1] = ((active_zones >> 8) & 0xff) as u8;
+                p[2] = (amp_zones & 0xff) as u8;
+                p[3] = ((amp_zones >> 8) & 0xff) as u8;
+                p[4] = ((amp_zones >> 16) & 0xff) as u8;
+                p[5] = ((amp_zones >> 24) & 0xff) as u8;
+                p[6] = freq;
+                (0x26, p)
+            }
+            TriggerMode::Machine => {
+                let start = self.start.min(8);
+                let end = self.end.clamp(start + 1, 9);
+                let amp_a = self.strength.clamp(1, 8);
+                let amp_b = self.strength.clamp(1, 8);
+                let freq = self.frequency.max(1);
+                let mut p = [0u8; 10];
+                p[0] = start;
+                p[1] = end;
+                p[2] = ((amp_b - 1) << 4) | (amp_a - 1);
+                p[3] = freq;
+                p[4] = 0;
+                (0x27, p)
+            }
+        }
+    }
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Profile {
@@ -35,6 +159,38 @@ pub struct Profile {
     pub stick_right_deadzone: f32,
     pub trigger_left_deadband: TriggerDeadband,
     pub trigger_right_deadband: TriggerDeadband,
+    #[serde(default)]
+    pub stick_left_outer_deadzone: f32,
+    #[serde(default)]
+    pub stick_right_outer_deadzone: f32,
+    #[serde(default)]
+    pub stick_left_invert_x: bool,
+    #[serde(default)]
+    pub stick_left_invert_y: bool,
+    #[serde(default)]
+    pub stick_right_invert_x: bool,
+    #[serde(default)]
+    pub stick_right_invert_y: bool,
+    #[serde(default)]
+    pub stick_swap: bool,
+
+    #[serde(default)]
+    pub trigger_left_config: TriggerConfig,
+    #[serde(default)]
+    pub trigger_right_config: TriggerConfig,
+
+    #[serde(default)]
+    pub gyro: GyroProcessor,
+
+    #[serde(default)]
+    pub haptic_pattern: HapticPattern,
+    #[serde(default)]
+    pub haptic_strength: u8, // 0-7
+    #[serde(default)]
+    pub haptic_speed: f32, // Hz
+
+    #[serde(default)]
+    pub touchpad_show_overlay: bool,
 }
 
 impl Profile {
@@ -44,47 +200,34 @@ impl Profile {
             right_curve: self.stick_right_curve.clone(),
             left_deadzone: self.stick_left_deadzone,
             right_deadzone: self.stick_right_deadzone,
-            trigger_left: self.trigger_left_deadband.clone(),
-            trigger_right: self.trigger_right_deadband.clone(),
+            left_outer_deadzone: self.stick_left_outer_deadzone,
+            right_outer_deadzone: self.stick_right_outer_deadzone,
+            left_invert_x: self.stick_left_invert_x,
+            left_invert_y: self.stick_left_invert_y,
+            right_invert_x: self.stick_right_invert_x,
+            right_invert_y: self.stick_right_invert_y,
+            stick_swap: self.stick_swap,
+            trigger_left: self.trigger_left_config.deadband.clone(),
+            trigger_right: self.trigger_right_config.deadband.clone(),
             button_remap: self.button_remapping.clone(),
             disabled_buttons: self.disabled_buttons.clone(),
+            touchpad_enabled: self.touchpad_enabled,
+        }
+    }
+
+    pub fn to_gyro_processor(&self) -> GyroProcessor {
+        GyroProcessor {
+            enabled: self.gyro.enabled,
+            smoothing: self.gyro.smoothing,
+            sensitivity: self.gyro.sensitivity * self.gyro_sensetivity,
+            ..Default::default()
         }
     }
 
     pub fn to_trigger_effect(&self) -> Option<(u8, [u8; 10])> {
         match self.trigger_mode {
             TriggerMode::Off => None,
-            TriggerMode::Feedback => {
-                let pos = self.trigger_feedback_position.min(9) as usize;
-                let str_ = self.haptic_intensity.clamp(1, 8);
-                let mut strengths = [0u8; 10];
-                for i in pos..10 {
-                    strengths[i] = str_;
-                }
-                let mut active_zones: u16 = 0;
-                let mut strength_zones: u32 = 0;
-                for i in 0..10 {
-                    if strengths[i] > 0 {
-                        let sv = ((strengths[i] - 1) & 0x07) as u32;
-                        strength_zones |= sv << (3 * i);
-                        active_zones |= 1 << i;
-                    }
-                }
-                let params: [u8; 10] = [
-                    (active_zones & 0xff) as u8,
-                    ((active_zones >> 8) & 0xff) as u8,
-                    (strength_zones & 0xff) as u8,
-                    ((strength_zones >> 8) & 0xff) as u8,
-                    ((strength_zones >> 16) & 0xff) as u8,
-                    ((strength_zones >> 24) & 0xff) as u8,
-                    0,
-                    0,
-                    0,
-                    0,
-                ];
-                Some((0x21, params))
-            }
-            _ => None,
+            _ => Some(self.trigger_left_config.to_effect()),
         }
     }
 }
@@ -96,11 +239,9 @@ pub struct ProfileManager {
 impl ProfileManager {
     pub fn new() -> Self {
         let profiles_dir = Self::get_profiles_dir();
-
         if !profiles_dir.exists() {
             let _ = fs::create_dir_all(&profiles_dir);
         }
-
         Self { profiles_dir }
     }
 
@@ -136,37 +277,32 @@ impl ProfileManager {
     pub fn save_profile(&self, profile: &Profile) -> Result<()> {
         let filename = format!("{}.json", Self::sanitize_filename(&profile.name));
         let path = self.profiles_dir.join(filename);
-
         let json = serde_json::to_string_pretty(profile)?;
         fs::write(path, json)?;
-
         Ok(())
     }
 
     pub fn load_profile(&self, name: &str) -> Result<Profile> {
         let filename = format!("{}.json", Self::sanitize_filename(name));
         let path = self.profiles_dir.join(filename);
-
         if !path.exists() {
             bail!("Profile '{}' not found", name);
         }
-
         let json = fs::read_to_string(path)?;
         let profile: Profile = serde_json::from_str(&json)?;
-
         Ok(profile)
     }
 
     pub fn delete_profile(&self, name: &str) -> Result<()> {
+        if name == "Default" {
+            bail!("Cannot delete Default profile");
+        }
         let filename = format!("{}.json", Self::sanitize_filename(name));
         let path = self.profiles_dir.join(filename);
-
         if !path.exists() {
             bail!("Profile '{}' not found", name);
         }
-
         fs::remove_file(path)?;
-
         Ok(())
     }
 
@@ -177,11 +313,9 @@ impl ProfileManager {
 
     pub fn list_profiles(&self) -> Vec<Profile> {
         let mut profiles = Vec::new();
-
         if let Ok(entries) = fs::read_dir(&self.profiles_dir) {
             for e in entries.flatten() {
                 let path = e.path();
-
                 if path.extension().and_then(|s| s.to_str()) == Some("json")
                     && let Ok(json) = fs::read_to_string(&path)
                     && let Ok(profile) = serde_json::from_str::<Profile>(&json)
@@ -190,7 +324,7 @@ impl ProfileManager {
                 }
             }
         }
-
+        profiles.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         profiles
     }
 }
@@ -224,6 +358,25 @@ impl Default for Profile {
             stick_right_deadzone: 0.0,
             trigger_left_deadband: TriggerDeadband::default(),
             trigger_right_deadband: TriggerDeadband::default(),
+
+            stick_left_outer_deadzone: 1.0,
+            stick_right_outer_deadzone: 1.0,
+            stick_left_invert_x: false,
+            stick_left_invert_y: false,
+            stick_right_invert_x: false,
+            stick_right_invert_y: false,
+            stick_swap: false,
+
+            trigger_left_config: TriggerConfig::default(),
+            trigger_right_config: TriggerConfig::default(),
+
+            gyro: GyroProcessor::default(),
+
+            haptic_pattern: HapticPattern::None,
+            haptic_strength: 0,
+            haptic_speed: 1.0,
+
+            touchpad_show_overlay: true,
         }
     }
 }

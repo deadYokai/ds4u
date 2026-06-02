@@ -12,11 +12,11 @@ use crate::{
     firmware::FirmwareDownloader,
     inputs::ControllerState,
     ipc::{IpcClient, socket_path},
-    profiles::{Profile, ProfileManager},
+    profiles::{Profile, ProfileManager, TriggerConfig},
     settings::{Settings, SettingsManager},
     state::*,
     theme::{Theme, ThemeManager},
-    transform::InputTransform,
+    transform::{GyroProcessor, InputTransform},
 };
 
 pub(crate) struct DS4UApp {
@@ -38,9 +38,9 @@ pub(crate) struct DS4UApp {
     pub(crate) controller_is_bt: Option<bool>,
     pub(crate) controller_product_id: Option<u16>,
 
-    profile_manager: ProfileManager,
-    current_profile: Option<Profile>,
-    profile_edit_name: String,
+    pub(crate) profile_manager: ProfileManager,
+    pub(crate) current_profile: Option<Profile>,
+    pub(crate) profile_edit_name: String,
 
     daemon_manager: DaemonManager,
 
@@ -50,10 +50,13 @@ pub(crate) struct DS4UApp {
     pub(crate) lightbar: LightbarState,
     pub(crate) player_leds: u8,
     pub(crate) microphone: MicrophoneState,
-    pub(crate) triggers: TriggerState,
+    pub(crate) triggers: TriggersState,
     pub(crate) sticks: StickSettings,
     pub(crate) audio: AudioSettings,
     pub(crate) vibration: VibrationSettings,
+    pub(crate) gyro: GyroState,
+    pub(crate) touchpad: TouchpadState,
+    pub(crate) haptic_state: HapticState,
 
     firmware_downloader: FirmwareDownloader,
     firmware_progress_rx: Option<Receiver<ProgressUpdate>>,
@@ -84,6 +87,7 @@ pub(crate) struct DS4UApp {
     pub(crate) input_transform: InputTransform,
 
     pub(crate) lightbar_effect: LightbarEffect,
+    pub(crate) local_gyro: GyroProcessor,
 }
 
 impl DS4UApp {
@@ -136,10 +140,9 @@ impl DS4UApp {
                 led_state: MicLedState::Off,
             },
 
-            triggers: TriggerState {
-                mode: TriggerMode::Off,
-                position: 0,
-                strength: 5,
+            triggers: TriggersState {
+                left: TriggerConfig::default(),
+                right: TriggerConfig::default(),
             },
 
             sticks: StickSettings {
@@ -147,6 +150,13 @@ impl DS4UApp {
                 right_curve: SensitivityCurve::Default,
                 left_deadzone: 0.1,
                 right_deadzone: 0.1,
+                left_outer_deadzone: 1.0,
+                right_outer_deadzone: 1.0,
+                left_invert_x: false,
+                left_invert_y: false,
+                right_invert_x: false,
+                right_invert_y: false,
+                swap: false,
             },
 
             audio: AudioSettings {
@@ -157,6 +167,21 @@ impl DS4UApp {
             vibration: VibrationSettings {
                 rumble: 0,
                 trigger: 0,
+            },
+
+            gyro: GyroState {
+                processor: GyroProcessor::default(),
+            },
+
+            touchpad: TouchpadState {
+                enabled: true,
+                show_overlay: true,
+            },
+
+            haptic_state: HapticState {
+                pattern: HapticPattern::None,
+                strength: 0,
+                speed: 1.0,
             },
 
             firmware_downloader: FirmwareDownloader::new(),
@@ -187,6 +212,8 @@ impl DS4UApp {
             input_transform: InputTransform::default(),
 
             lightbar_effect: LightbarEffect::None,
+
+            local_gyro: GyroProcessor::default(),
         };
 
         app.check_for_controller();
@@ -210,15 +237,6 @@ impl DS4UApp {
         }
 
         app
-    }
-
-    pub(crate) fn apply_lightbar_effect(&mut self) {
-        if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc
-                .lock()
-                .unwrap()
-                .set_lightbar_effect(self.lightbar_effect.clone());
-        }
     }
 
     pub(crate) fn is_connected(&self) -> bool {
@@ -308,6 +326,7 @@ impl DS4UApp {
                 self.apply_player_leds();
                 self.apply_microphone();
                 self.apply_input_transform();
+                self.apply_triggers();
             }
             Err(_) => {
                 self.controller = None;
@@ -342,6 +361,9 @@ impl DS4UApp {
         self.apply_player_leds();
         self.apply_microphone();
         self.apply_input_transform();
+        self.apply_triggers();
+        self.apply_gyro();
+        self.apply_haptic_pattern();
     }
 
     fn disconnect_controller(&mut self) {
@@ -476,6 +498,41 @@ impl DS4UApp {
         }
     }
 
+    pub(crate) fn apply_lightbar_effect(&mut self) {
+        if let Some(ref ipc) = self.ipc.clone() {
+            let _ = ipc
+                .lock()
+                .unwrap()
+                .set_lightbar_effect(self.lightbar_effect.clone());
+        }
+    }
+
+    pub(crate) fn apply_haptic_pattern(&mut self) {
+        let pattern = self.haptic_state.pattern;
+        let strength = self.haptic_state.strength;
+        let speed = self.haptic_state.speed;
+        if let Some(ref ipc) = self.ipc.clone() {
+            let _ = ipc
+                .lock()
+                .unwrap()
+                .set_haptic_pattern(pattern, strength, speed);
+        }
+    }
+
+    pub(crate) fn apply_gyro(&mut self) {
+        let g = &self.gyro.processor;
+        self.local_gyro.enabled = g.enabled;
+        self.local_gyro.smoothing = g.smoothing;
+        self.local_gyro.sensitivity = g.sensitivity;
+
+        if let Some(ref ipc) = self.ipc.clone() {
+            let _ = ipc
+                .lock()
+                .unwrap()
+                .set_gyro(g.enabled, g.smoothing, g.sensitivity);
+        }
+    }
+
     pub(crate) fn apply_player_leds(&mut self) {
         let leds = self.player_leds;
 
@@ -523,63 +580,35 @@ impl DS4UApp {
         }
     }
 
-    pub(crate) fn apply_trigger(&mut self) {
-        match self.triggers.mode {
-            TriggerMode::Off => {
-                if let Some(ref ipc) = self.ipc.clone() {
-                    let _ = ipc.lock().unwrap().set_trigger_off();
-                    return;
-                }
-                if let Some(c) = &self.controller
-                    && let Ok(mut ctrl) = c.lock()
-                {
-                    let _ = ctrl.set_trigger_off();
-                }
-            }
-            TriggerMode::Feedback => {
-                let mut strengths = [0u8; 10];
-                for i in self.triggers.position..10 {
-                    strengths[i as usize] = self.triggers.strength;
-                }
-                let mut active_zones: u16 = 0;
-                let mut strength_zones: u32 = 0;
-                for i in 0..10 {
-                    if strengths[i] > 0 {
-                        let sv = ((strengths[i] - 1) & 0x07) as u32;
-                        strength_zones |= sv << (3 * i);
-                        active_zones |= 1 << i;
-                    }
-                }
-                let params: [u8; 10] = [
-                    (active_zones & 0xff) as u8,
-                    ((active_zones >> 8) & 0xff) as u8,
-                    (strength_zones & 0xff) as u8,
-                    ((strength_zones >> 8) & 0xff) as u8,
-                    ((strength_zones >> 16) & 0xff) as u8,
-                    ((strength_zones >> 24) & 0xff) as u8,
-                    0,
-                    0,
-                    0,
-                    0,
-                ];
-                if let Some(ref ipc) = self.ipc.clone() {
-                    let _ = ipc
-                        .lock()
-                        .unwrap()
-                        .set_trigger_effect(true, true, 0x21, params);
-                    return;
-                }
-                if let Some(c) = &self.controller
-                    && let Ok(mut ctrl) = c.lock()
-                {
-                    let _ = ctrl.set_trigger_effect(true, true, 0x21, &params);
-                }
-            }
-            _ => {}
+    pub(crate) fn apply_triggers(&mut self) {
+        let left_eff = if matches!(self.triggers.left.mode, TriggerMode::Off) {
+            None
+        } else {
+            Some(self.triggers.left.to_effect())
+        };
+        let right_eff = if matches!(self.triggers.right.mode, TriggerMode::Off) {
+            None
+        } else {
+            Some(self.triggers.right.to_effect())
+        };
+
+        if let Some(ref ipc) = self.ipc.clone() {
+            let l = left_eff.or(Some((0x05, [0u8; 10])));
+            let r = right_eff.or(Some((0x05, [0u8; 10])));
+            let _ = ipc.lock().unwrap().set_trigger_effects(l, r);
+            return;
+        }
+
+        if let Some(controller) = &self.controller
+            && let Ok(mut ctrl) = controller.lock()
+        {
+            let l = left_eff.or(Some((0x05, [0u8; 10])));
+            let r = right_eff.or(Some((0x05, [0u8; 10])));
+            let _ = ctrl.set_trigger_effects(l, r);
         }
     }
 
-    fn load_profile(&mut self, profile: &Profile) {
+    pub(crate) fn load_profile(&mut self, profile: &Profile) {
         self.lightbar.r = profile.lightbar_r;
         self.lightbar.g = profile.lightbar_g;
         self.lightbar.b = profile.lightbar_b;
@@ -587,12 +616,45 @@ impl DS4UApp {
         self.player_leds = profile.player_leds;
         self.microphone.enabled = profile.mic_enabled;
 
-        self.apply_lightbar();
-        self.apply_player_leds();
+        self.sticks.left_curve = profile.stick_left_curve.clone();
+        self.sticks.right_curve = profile.stick_right_curve.clone();
+        self.sticks.left_deadzone = profile.stick_left_deadzone;
+        self.sticks.right_deadzone = profile.stick_right_deadzone;
+        self.sticks.left_outer_deadzone = profile.stick_left_outer_deadzone;
+        self.sticks.right_outer_deadzone = profile.stick_right_outer_deadzone;
+        self.sticks.left_invert_x = profile.stick_left_invert_x;
+        self.sticks.left_invert_y = profile.stick_left_invert_y;
+        self.sticks.right_invert_x = profile.stick_right_invert_x;
+        self.sticks.right_invert_y = profile.stick_right_invert_y;
+        self.sticks.swap = profile.stick_swap;
+
+        self.triggers.left = profile.trigger_left_config.clone();
+        self.triggers.right = profile.trigger_right_config.clone();
+
+        self.gyro.processor = profile.to_gyro_processor();
+        self.touchpad.enabled = profile.touchpad_enabled;
+        self.touchpad.show_overlay = profile.touchpad_show_overlay;
+
+        self.haptic_state.pattern = profile.haptic_pattern;
+        self.haptic_state.strength = profile.haptic_strength;
+        self.haptic_state.speed = profile.haptic_speed;
+
         self.current_profile = Some(profile.clone());
 
         self.settings.profile = profile.name.clone();
         self.settings_manager.save(&self.settings);
+
+        self.apply_lightbar();
+        self.apply_player_leds();
+        self.apply_microphone();
+        self.apply_input_transform();
+        self.apply_triggers();
+        self.apply_gyro();
+        self.apply_haptic_pattern();
+
+        if let Some(ref ipc) = self.ipc.clone() {
+            let _ = ipc.lock().unwrap().switch_profile(&profile.name);
+        }
     }
 
     pub(crate) fn sync_profile(&mut self) {
@@ -607,7 +669,34 @@ impl DS4UApp {
         profile.player_leds = self.player_leds;
         profile.mic_enabled = self.microphone.enabled;
 
-        let _ = self.profile_manager.save_profile(profile);
+        profile.stick_left_curve = self.sticks.left_curve.clone();
+        profile.stick_right_curve = self.sticks.right_curve.clone();
+        profile.stick_left_deadzone = self.sticks.left_deadzone;
+        profile.stick_right_deadzone = self.sticks.right_deadzone;
+        profile.stick_left_outer_deadzone = self.sticks.left_outer_deadzone;
+        profile.stick_right_outer_deadzone = self.sticks.right_outer_deadzone;
+        profile.stick_left_invert_x = self.sticks.left_invert_x;
+        profile.stick_left_invert_y = self.sticks.left_invert_y;
+        profile.stick_right_invert_x = self.sticks.right_invert_x;
+        profile.stick_right_invert_y = self.sticks.right_invert_y;
+        profile.stick_swap = self.sticks.swap;
+
+        profile.trigger_left_config = self.triggers.left.clone();
+        profile.trigger_right_config = self.triggers.right.clone();
+
+        profile.gyro = self.gyro.processor.clone();
+        profile.touchpad_enabled = self.touchpad.enabled;
+        profile.touchpad_show_overlay = self.touchpad.show_overlay;
+
+        profile.haptic_pattern = self.haptic_state.pattern;
+        profile.haptic_strength = self.haptic_state.strength;
+        profile.haptic_speed = self.haptic_state.speed;
+
+        if let Some(ref ipc) = self.ipc.clone() {
+            let _ = ipc.lock().unwrap().save_profile(profile.clone());
+        } else {
+            let _ = self.profile_manager.save_profile(profile);
+        }
     }
 
     pub(crate) fn check_controller_connection(&mut self) {
@@ -703,6 +792,30 @@ impl DS4UApp {
                 )));
             }
         });
+    }
+
+    pub(crate) fn refresh_firmware_info(&mut self) {
+        let result = if let Some(ref ipc) = self.ipc.clone() {
+            ipc.lock().unwrap().get_firmware_info()
+        } else if let Some(ref ctrl) = self.controller {
+            ctrl.lock().unwrap().get_firmware_info()
+        } else {
+            self.error_message = "No controller available".into();
+            return;
+        };
+
+        match result {
+            Ok((ver, date, time)) => {
+                self.firmware_current_version = Some(ver);
+                self.status_message = format!("Firmware: 0x{:04X}  ({} {})", ver, date, time);
+                self.firmware_build_date = Some(date);
+                self.firmware_build_time = Some(time);
+                self.error_message.clear();
+            }
+            Err(e) => {
+                self.error_message = format!("Failed to read firmware: {}", e);
+            }
+        }
     }
 
     pub(crate) fn flash_latest(&mut self) {
@@ -829,11 +942,65 @@ impl DS4UApp {
         t.right_curve = self.sticks.right_curve.clone();
         t.left_deadzone = self.sticks.left_deadzone;
         t.right_deadzone = self.sticks.right_deadzone;
+        t.left_outer_deadzone = self.sticks.left_outer_deadzone;
+        t.right_outer_deadzone = self.sticks.right_outer_deadzone;
+        t.left_invert_x = self.sticks.left_invert_x;
+        t.left_invert_y = self.sticks.left_invert_y;
+        t.right_invert_x = self.sticks.right_invert_x;
+        t.right_invert_y = self.sticks.right_invert_y;
+        t.stick_swap = self.sticks.swap;
+        t.touchpad_enabled = self.touchpad.enabled;
+        t.trigger_left = self.triggers.left.deadband.clone();
+        t.trigger_right = self.triggers.right.deadband.clone();
 
         self.input_transform = t.clone();
 
         if let Some(ref ipc) = self.ipc.clone() {
             let _ = ipc.lock().unwrap().set_input_transform(t);
         }
+    }
+
+    pub(crate) fn create_profile(&mut self, name: &str) -> bool {
+        if name.trim().is_empty() {
+            return false;
+        }
+        if self.profile_manager.profile_exists(name) {
+            return false;
+        }
+
+        let mut p = Profile::default();
+        p.name = name.to_string();
+        if let Some(cur) = &self.current_profile {
+            let mut clone = cur.clone();
+            clone.name = name.to_string();
+            p = clone;
+        }
+        if self.profile_manager.save_profile(&p).is_err() {
+            return false;
+        }
+        if let Some(ref ipc) = self.ipc.clone() {
+            let _ = ipc.lock().unwrap().save_profile(p.clone());
+        }
+        self.load_profile(&p);
+        true
+    }
+
+    pub(crate) fn delete_profile(&mut self, name: &str) -> bool {
+        if name == "Default" {
+            return false;
+        }
+        let result = if let Some(ref ipc) = self.ipc.clone() {
+            ipc.lock().unwrap().delete_profile(name).is_ok()
+        } else {
+            self.profile_manager.delete_profile(name).is_ok()
+        };
+        if result
+            && let Some(cur) = self.current_profile.as_ref()
+            && cur.name == name
+        {
+            let default = self.profile_manager.ensure_default_exists();
+            self.load_profile(&default);
+        }
+        result
     }
 }

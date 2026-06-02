@@ -1,4 +1,6 @@
-use egui::{Button, Color32, CornerRadius, Frame, Layout, Margin, RichText, Sense, Ui, vec2};
+use egui::{
+    Button, Color32, ComboBox, CornerRadius, Frame, Layout, Margin, RichText, Sense, Ui, vec2,
+};
 
 use crate::app::DS4UApp;
 use crate::state::Section;
@@ -18,6 +20,50 @@ impl DS4UApp {
 
         if ui.add(btn).clicked() {
             self.active_section = section;
+        }
+    }
+
+    fn render_profile_selector(&mut self, ui: &mut Ui) {
+        let c = self.theme.colors.clone();
+        let cur_name = self
+            .current_profile
+            .as_ref()
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| "Default".to_string());
+
+        ui.label(RichText::new("Profile").size(12.0).color(c.text_dim()));
+        ui.add_space(4.0);
+
+        let mut switch_to: Option<String> = None;
+
+        ComboBox::from_id_salt("profile_combo")
+            .selected_text(cur_name.clone())
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                let profiles = self.profile_manager.list_profiles();
+                if profiles.is_empty() {
+                    ui.label(RichText::new("(no profiles)").color(c.text_dim()));
+                } else {
+                    for p in profiles {
+                        if ui.selectable_label(p.name == cur_name, &p.name).clicked() {
+                            switch_to = Some(p.name);
+                        }
+                    }
+                }
+            });
+
+        if let Some(name) = switch_to
+            && let Ok(p) = self.profile_manager.load_profile(&name)
+        {
+            self.load_profile(&p);
+        }
+
+        ui.add_space(6.0);
+        if ui
+            .button(RichText::new("Manage profiles").size(12.0))
+            .clicked()
+        {
+            self.active_section = Section::Profiles;
         }
     }
 
@@ -102,57 +148,25 @@ impl DS4UApp {
         });
 
         ui.add_space(5.0);
+
+        if self.is_connected() {
+            self.render_profile_selector(ui);
+        }
+
+        ui.add_space(5.0);
         ui.separator();
         ui.add_space(20.0);
 
         if self.is_connected() {
-            // ui.label(RichText::new("Profile")
-            //     .size(12.0)
-            //     .color(Color32::GRAY));
-            //
-            // ui.add_space(5.0);
-            //
-            // egui::ComboBox::from_id_salt("profile_combo")
-            //     .selected_text(self.current_profile.as_ref()
-            //         .map(|p| p.name.as_str())
-            //         .unwrap_or("Default"))
-            //     .width(ui.available_width())
-            //     .show_ui(ui, |ui| {
-            //         if ui.selectable_label
-            //             (self.current_profile.is_none(), "Default").clicked() {
-            //             self.current_profile = None;
-            //         }
-            //
-            //         for profile in self.profile_manager.list_profiles() {
-            //             if ui.selectable_label(
-            //                     self.current_profile.as_ref()
-            //                         .map(|p| &p.name) == Some(&profile.name),
-            //                     &profile.name)
-            //                 .clicked() {
-            //                     self.load_profile(&profile);
-            //             }
-            //         }
-            //     });
-            //
-            // ui.add_space(10.0);
-            //
-            // if ui.button("Manage Profiles").clicked() {
-            //     self.show_profiles_panel = !self.show_profiles_panel;
-            // }
-            //
-            // ui.add_space(30.0);
-            // ui.separator();
-            // ui.add_space(20.0);
-
             self.render_nav_btn(ui, "Inputs", Section::Inputs);
             self.render_nav_btn(ui, "Lightbar", Section::Lightbar);
-            #[cfg(feature = "unstable")]
-            self.render_nav_btn(ui, "Triggers", Section::Triggers);
-            #[cfg(feature = "unstable")]
             self.render_nav_btn(ui, "Sticks", Section::Sticks);
-            #[cfg(feature = "unstable")]
+            self.render_nav_btn(ui, "Triggers", Section::Triggers);
             self.render_nav_btn(ui, "Haptics", Section::Haptics);
+            self.render_nav_btn(ui, "Gyroscope", Section::Gyroscope);
+            self.render_nav_btn(ui, "Touchpad", Section::Touchpad);
             self.render_nav_btn(ui, "Audio", Section::Audio);
+            self.render_nav_btn(ui, "Profiles", Section::Profiles);
             self.render_nav_btn(ui, "Advanced", Section::Advanced);
             self.render_nav_btn(ui, "Settings", Section::Settings);
         }

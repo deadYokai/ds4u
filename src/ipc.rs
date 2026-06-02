@@ -9,9 +9,10 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{LightbarEffect, MicLedState},
+    common::{HapticPattern, LightbarEffect, MicLedState},
     dualsense::BatteryInfo,
     inputs::ControllerState,
+    profiles::Profile,
     transform::{self, InputTransform},
 };
 
@@ -23,11 +24,9 @@ mod transport {
         path::PathBuf,
         time::Duration,
     };
-
     pub type Addr = PathBuf;
     pub type Stream = UnixStream;
     pub type Listener = UnixListener;
-
     pub fn connect(addr: &Addr) -> io::Result<Stream> {
         UnixStream::connect(addr)
     }
@@ -49,11 +48,9 @@ mod transport {
         net::{SocketAddr, TcpListener, TcpStream},
         time::Duration,
     };
-
     pub type Addr = SocketAddr;
     pub type Stream = TcpStream;
     pub type Listener = TcpListener;
-
     pub fn connect(addr: &Addr) -> io::Result<Stream> {
         TcpStream::connect(addr)
     }
@@ -97,7 +94,6 @@ pub fn bind_daemon(addr: &DaemonAddr) -> io::Result<DaemonListener> {
 pub fn cleanup_endpoint(addr: &DaemonAddr) {
     if addr.exists() {
         use std::fs;
-
         let _ = fs::remove_file(addr);
     }
 }
@@ -142,6 +138,10 @@ pub enum DaemonCommand {
         effect_type: u8,
         params: [u8; 10],
     },
+    SetTriggerEffects {
+        left: Option<(u8, [u8; 10])>,
+        right: Option<(u8, [u8; 10])>,
+    },
     SetVibration {
         rumble: u8,
         trigger: u8,
@@ -162,11 +162,28 @@ pub enum DaemonCommand {
     SetLightbarEffect {
         effect: LightbarEffect,
     },
+    SetHapticPattern {
+        pattern: HapticPattern,
+        strength: u8,
+        speed: f32,
+    },
+    SetGyro {
+        enabled: bool,
+        smoothing: f32,
+        sensitivity: f32,
+    },
     SwitchProfile {
         name: String,
     },
     ListProfiles,
     ReloadProfile,
+    SaveProfile {
+        profile: Profile,
+    },
+    DeleteProfile {
+        name: String,
+    },
+    GetActiveProfile,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -279,6 +296,7 @@ impl IpcClient {
                 product_id,
                 is_bt,
             } => Ok(Some((serial, product_id, is_bt))),
+            DaemonResponse::NoDevice => Ok(None),
             DaemonResponse::Error { message } => bail!("{}", message),
             _ => bail!("Unexpected response"),
         }
@@ -353,6 +371,18 @@ impl IpcClient {
         }
     }
 
+    pub fn set_trigger_effects(
+        &mut self,
+        left: Option<(u8, [u8; 10])>,
+        right: Option<(u8, [u8; 10])>,
+    ) -> Result<()> {
+        match self.request(DaemonCommand::SetTriggerEffects { left, right })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
+    }
+
     pub fn set_vibration(&mut self, rumble: u8, trigger: u8) -> Result<()> {
         match self.request(DaemonCommand::SetVibration { rumble, trigger })? {
             DaemonResponse::Ok => Ok(()),
@@ -407,6 +437,35 @@ impl IpcClient {
         }
     }
 
+    pub fn set_haptic_pattern(
+        &mut self,
+        pattern: HapticPattern,
+        strength: u8,
+        speed: f32,
+    ) -> Result<()> {
+        match self.request(DaemonCommand::SetHapticPattern {
+            pattern,
+            strength,
+            speed,
+        })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn set_gyro(&mut self, enabled: bool, smoothing: f32, sensitivity: f32) -> Result<()> {
+        match self.request(DaemonCommand::SetGyro {
+            enabled,
+            smoothing,
+            sensitivity,
+        })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
+    }
+
     pub fn switch_profile(&mut self, name: &str) -> Result<()> {
         match self.request(DaemonCommand::SwitchProfile {
             name: name.to_string(),
@@ -428,6 +487,32 @@ impl IpcClient {
     pub fn list_profiles(&mut self) -> Result<Vec<String>> {
         match self.request(DaemonCommand::ListProfiles)? {
             DaemonResponse::ProfileList { profiles } => Ok(profiles),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => bail!("Unexpected response"),
+        }
+    }
+
+    pub fn save_profile(&mut self, profile: Profile) -> Result<()> {
+        match self.request(DaemonCommand::SaveProfile { profile })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn delete_profile(&mut self, name: &str) -> Result<()> {
+        match self.request(DaemonCommand::DeleteProfile {
+            name: name.to_string(),
+        })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn get_active_profile(&mut self) -> Result<String> {
+        match self.request(DaemonCommand::GetActiveProfile)? {
+            DaemonResponse::ActiveProfile { name } => Ok(name),
             DaemonResponse::Error { message } => bail!("{}", message),
             _ => bail!("Unexpected response"),
         }
