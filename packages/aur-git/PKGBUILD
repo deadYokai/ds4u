@@ -1,12 +1,13 @@
 # Maintainer: deadYokai
+
 pkgname=ds4u-git
 pkgver=r33.g4ac16f0
 pkgrel=1
 pkgdesc="DualSense 4 You — DualSense controller manager (git)"
 arch=('x86_64')
-url="https://gitlab.com/deadYokai/ds4u"
+url="https://git.yokai.digital/deadYokai/ds4u"
 license=('MIT')
-depends=('hidapi' 'libxkbcommon')
+depends=('hidapi' 'libxkbcommon' 'openssl')
 makedepends=('rust' 'cargo' 'git' 'clang' 'lld')
 provides=('ds4u')
 conflicts=('ds4u')
@@ -37,10 +38,13 @@ build() {
 package() {
     cd "$pkgname"
 
-    install -Dm755 "target/dev-release/$pkgname" "$pkgdir/usr/bin/$pkgname"
+    install -Dm755 "target/dev-release/ds4u" "$pkgdir/usr/bin/ds4u"
+
+    install -Dm644 "assets/icon.svg" \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/ds4u.svg"
 
     install -Dm644 /dev/stdin \
-        "$pkgdir/usr/lib/udev/rules.d/70-$pkgname.rules" << 'EOF'
+        "$pkgdir/usr/lib/udev/rules.d/70-ds4u.rules" << 'EOF'
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0ce6", MODE="0664", GROUP="input", TAG+="uaccess"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0df2", MODE="0664", GROUP="input", TAG+="uaccess"
 EOF
@@ -59,19 +63,17 @@ Restart=on-failure
 WantedBy=default.target
 EOF
 
-    install -Dm644 "assets/icon.svg" \
-        "$pkgdir/usr/share/icons/hicolor/scalable/apps/ds4u.svg"
-
     install -Dm644 /dev/stdin \
         "$pkgdir/usr/share/applications/ds4u.desktop" << 'EOF'
 [Desktop Entry]
 Name=DS4U (git)
-Comment=DualSense controller manager
+Comment=DualSense controller manager for Linux
 Exec=ds4u
 Icon=ds4u
 Terminal=false
 Type=Application
-Categories=Utility;Settings;
+Categories=Utility;Settings;Game;
+Keywords=controller;dualsense;ps5;gamepad;
 EOF
 
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

@@ -1,0 +1,74 @@
+name: Publish to AUR
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version to publish'
+        required: true
+
+jobs:
+  publish-aur:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version from tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "PKGVER=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
+          else
+            echo "PKGVER=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+          fi
+
+      - name: Setup SSH for AUR
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          echo "Host aur.archlinux.org" >> ~/.ssh/config
+          echo "  IdentityFile ~/.ssh/aur" >> ~/.ssh/config
+          echo "  User aur" >> ~/.ssh/config
+          echo "  StrictHostKeyChecking no" >> ~/.ssh/config
+
+      - name: Configure git
+        run: |
+          git config --global user.name "deadYokai"
+          git config --global user.email "${{ secrets.AUR_EMAIL }}"
+
+      - name: Update PKGBUILD version (stable)
+        run: |
+          cd packages/aur
+          sed -i "s/^pkgver=.*/pkgver=$PKGVER/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+      - name: Update .SRCINFO (stable)
+        run: |
+          cd packages/aur
+          makepkg --printsrcinfo > .SRCINFO
+
+      - name: Push stable to AUR
+        run: |
+          git clone ssh://aur@aur.archlinux.org/ds4u.git /tmp/aur-ds4u
+          cp packages/aur/PKGBUILD /tmp/aur-ds4u/PKGBUILD
+          cp packages/aur/.SRCINFO /tmp/aur-ds4u/.SRCINFO
+          cd /tmp/aur-ds4u
+          git add PKGBUILD .SRCINFO
+          git diff --cached --quiet || git commit -m "chore: update to v$PKGVER"
+          git push
+
+      - name: Push git to AUR
+        run: |
+          git clone ssh://aur@aur.archlinux.org/ds4u-git.git /tmp/aur-ds4u-git
+          cp packages/aur-git/PKGBUILD /tmp/aur-ds4u-git/PKGBUILD
+          cd /tmp/aur-ds4u-git
+          makepkg --printsrcinfo > .SRCINFO
+          cd /tmp/aur-ds4u-git
+          git add PKGBUILD .SRCINFO
+          git diff --cached --quiet || git commit -m "chore: sync with v$PKGVER release"
+          git push
