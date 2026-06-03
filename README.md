@@ -18,6 +18,9 @@ Native Linux Gui tool for configuring DualSense controllers.
 
 ![app preview](preview/app.png)
 
+[![AUR](https://img.shields.io/aur/version/ds4u?style=for-the-badge)](https://aur.archlinux.org/packages/ds4u)
+[![AURGIT](https://img.shields.io/aur/version/ds4u-git?style=for-the-badge)](https://aur.archlinux.org/packages/ds4u-git)
+
 ## Features
 
 ### Controller
