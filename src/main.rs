@@ -5,10 +5,13 @@ use crate::app::DS4UApp;
 use self::ipc::IpcClient;
 
 mod app;
+mod backend;
 mod common;
 mod daemon;
 mod dualsense;
 mod firmware;
+mod firmware_controller;
+mod input_poller;
 mod inputs;
 mod ipc;
 mod profiles;
@@ -18,6 +21,7 @@ mod style;
 mod theme;
 mod transform;
 mod ui;
+mod util;
 
 fn main() -> Result<(), eframe::Error> {
     let args: Vec<String> = env::args().collect();

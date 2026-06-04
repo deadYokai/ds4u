@@ -1,4 +1,4 @@
-use egui::{Button, Color32, CornerRadius, Frame, Margin, ProgressBar, RichText, Ui, vec2};
+use egui::{Button, CornerRadius, Frame, Margin, ProgressBar, RichText, Ui, vec2};
 
 use crate::app::DS4UApp;
 use crate::firmware::get_product_name;
@@ -24,7 +24,8 @@ impl DS4UApp {
             .unwrap_or_else(|| "-".to_string());
 
         let cur_str = self
-            .firmware_current_version
+            .firmware
+            .current_version
             .map(|v| format!("0x{:04X}", v))
             .unwrap_or_else(|| {
                 if connected {
@@ -34,18 +35,18 @@ impl DS4UApp {
                 }
             });
 
-        let build_date = self.firmware_build_date.clone().unwrap_or("-".into());
-        let build_time = self.firmware_build_time.clone().unwrap_or("-".into());
+        let build_date = self.firmware.build_date.clone().unwrap_or("-".into());
+        let build_time = self.firmware.build_time.clone().unwrap_or("-".into());
 
-        let latest_str = self.firmware_latest_version.clone();
-        let checking = self.firmware_checking_latest;
+        let latest_str = self.firmware.latest_version.clone();
+        let checking = self.firmware.checking_latest;
 
-        let fw_updating = self.firmware_updating;
-        let fw_progress = self.firmware_progress;
-        let fw_status = self.firmware_status.clone();
+        let fw_updating = self.firmware.updating;
+        let fw_progress = self.firmware.progress;
+        let fw_status = self.firmware.status.clone();
 
         let b: Option<bool> =
-            if let (Some(cur), Some(latest)) = (self.firmware_current_version, &latest_str) {
+            if let (Some(cur), Some(latest)) = (self.firmware.current_version, &latest_str) {
                 let latest_int = latest
                     .to_lowercase()
                     .trim_start_matches("0x")

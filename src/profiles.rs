@@ -274,7 +274,27 @@ impl ProfileManager {
             .collect()
     }
 
+    pub fn validate_profile_name(name: &str) -> Result<()> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            bail!("Profile name cannot be empty");
+        }
+
+        if trimmed.len() > 64 {
+            bail!("Profile name must be less than 64 characters");
+        }
+
+        if Self::sanitize_filename(trimmed) != trimmed {
+            bail!(
+                "Profile name '{}' contains invalid characters. Allowed: letters, digits, '-', '_' (no spaces, slashes, or punctuation)",
+                name
+            );
+        }
+        Ok(())
+    }
+
     pub fn save_profile(&self, profile: &Profile) -> Result<()> {
+        Self::validate_profile_name(&profile.name)?;
         let filename = format!("{}.json", Self::sanitize_filename(&profile.name));
         let path = self.profiles_dir.join(filename);
         let json = serde_json::to_string_pretty(profile)?;

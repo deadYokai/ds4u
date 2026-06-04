@@ -15,6 +15,7 @@ impl DS4UApp {
         let rounding = CornerRadius::same(6);
 
         let pressed = app
+            .input
             .controller_state
             .as_ref()
             .map_or(false, |s| s.buttons & BTN_TOUCHPAD != 0);
@@ -41,7 +42,7 @@ impl DS4UApp {
             );
         }
 
-        if let Some(state) = &app.controller_state {
+        if let Some(state) = &app.input.controller_state {
             for pt in state.touch_points.iter().filter(|p| p.active) {
                 let nx = pt.x as f32 / TOUCHPAD_MAX_X as f32;
                 let ny = pt.y as f32 / TOUCHPAD_MAX_Y as f32;
@@ -97,10 +98,10 @@ impl DS4UApp {
         ui.label(RichText::new("Live preview").size(14.0).strong());
         ui.add_space(6.0);
 
-        if self.controller_state.is_some() {
+        if self.input.controller_state.is_some() {
             Self::render_touchpad_visual(ui, self, &c);
             ui.add_space(10.0);
-            let s = self.controller_state.as_ref().unwrap();
+            let s = self.input.controller_state.as_ref().unwrap();
             let mut line = format!("active: {}", s.touch_count);
             for (i, pt) in s.touch_points.iter().enumerate() {
                 if pt.active {

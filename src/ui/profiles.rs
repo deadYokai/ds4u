@@ -1,4 +1,4 @@
-use egui::{Button, Color32, ComboBox, Frame, RichText, Stroke, TextEdit, Ui, vec2};
+use egui::{Button, Color32, Frame, RichText, Stroke, TextEdit, Ui, vec2};
 
 use crate::app::DS4UApp;
 

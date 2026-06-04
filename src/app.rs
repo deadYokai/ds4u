@@ -1,22 +1,24 @@
 use hidapi::HidApi;
 use std::{
-    sync::{self, Arc, Mutex, mpsc, mpsc::Receiver},
+    sync::{self, Arc, Mutex, mpsc},
     thread::{self, sleep},
     time::{Duration, Instant},
 };
 
 use crate::{
+    backend::{ControllerBackend, DirectBackend, IpcBackend, TRIGGER_OFF},
     common::*,
     daemon::DaemonManager,
     dualsense::{self, BatteryInfo, DualSense},
-    firmware::FirmwareDownloader,
-    inputs::ControllerState,
+    firmware_controller::FirmwareController,
+    input_poller::InputPoller,
     ipc::{IpcClient, socket_path},
     profiles::{Profile, ProfileManager, TriggerConfig},
     settings::{Settings, SettingsManager},
     state::*,
     theme::{Theme, ThemeManager},
     transform::{GyroProcessor, InputTransform},
+    util::mlock,
 };
 
 pub(crate) struct DS4UApp {
@@ -58,30 +60,13 @@ pub(crate) struct DS4UApp {
     pub(crate) touchpad: TouchpadState,
     pub(crate) haptic_state: HapticState,
 
-    firmware_downloader: FirmwareDownloader,
-    firmware_progress_rx: Option<Receiver<ProgressUpdate>>,
-    pub(crate) firmware_progress: u32,
-    pub(crate) firmware_status: String,
-
-    pub(crate) firmware_updating: bool,
-    fw_used_daemon: bool,
-
-    update_mode_flag: Option<Arc<sync::atomic::AtomicBool>>,
+    pub(crate) firmware: FirmwareController,
+    pub(crate) input: InputPoller,
 
     pub(crate) controller_serial: Option<String>,
-    pub(crate) firmware_current_version: Option<u16>,
-    pub(crate) firmware_latest_version: Option<String>,
-    pub(crate) firmware_checking_latest: bool,
-    pub(crate) firmware_build_date: Option<String>,
-    pub(crate) firmware_build_time: Option<String>,
 
     pub(crate) status_message: String,
     pub(crate) error_message: String,
-
-    pub(crate) controller_state: Option<ControllerState>,
-    pub(crate) input_state_rx: Option<mpsc::Receiver<ControllerState>>,
-    pub(crate) input_polling: bool,
-    input_poll_stop: Option<Arc<sync::atomic::AtomicBool>>,
 
     pending_connect_since: Option<Instant>,
     pub(crate) input_transform: InputTransform,
@@ -184,29 +169,13 @@ impl DS4UApp {
                 speed: 1.0,
             },
 
-            firmware_downloader: FirmwareDownloader::new(),
-            firmware_progress_rx: None,
-            firmware_progress: 0,
-            firmware_status: String::new(),
-            firmware_updating: false,
-            fw_used_daemon: false,
-
-            update_mode_flag: None,
+            firmware: FirmwareController::new(),
+            input: InputPoller::new(),
 
             controller_serial: None,
-            firmware_current_version: None,
-            firmware_latest_version: None,
-            firmware_checking_latest: false,
-            firmware_build_date: None,
-            firmware_build_time: None,
 
             status_message: String::new(),
             error_message: String::new(),
-
-            controller_state: None,
-            input_state_rx: None,
-            input_polling: false,
-            input_poll_stop: None,
 
             pending_connect_since: None,
             input_transform: InputTransform::default(),
@@ -243,16 +212,26 @@ impl DS4UApp {
         self.controller.is_some() || self.ipc.is_some()
     }
 
+    fn backend(&self) -> Option<Box<dyn ControllerBackend>> {
+        if let Some(ipc) = &self.ipc {
+            return Some(Box::new(IpcBackend(ipc.clone())));
+        }
+        if let Some(ctrl) = &self.controller {
+            return Some(Box::new(DirectBackend(ctrl.clone())));
+        }
+        None
+    }
+
     pub(crate) fn start_input_polling(&mut self) {
         let (tx, rx) = mpsc::channel();
         let stop_flag = Arc::new(sync::atomic::AtomicBool::new(false));
         let stop_clone = Arc::clone(&stop_flag);
 
-        self.input_state_rx = Some(rx);
-        self.input_poll_stop = Some(stop_flag);
-        self.input_polling = true;
+        self.input.state_rx = Some(rx);
+        self.input.stop = Some(stop_flag);
+        self.input.polling = true;
 
-        if self.ipc.is_some() {
+        let handle = if self.ipc.is_some() {
             let path = socket_path();
             thread::spawn(move || {
                 let mut client = match IpcClient::connect(&path) {
@@ -269,7 +248,7 @@ impl DS4UApp {
                         }
                     }
                 }
-            });
+            })
         } else {
             let Some(ctrl) = self.controller.clone() else {
                 return;
@@ -279,45 +258,41 @@ impl DS4UApp {
                     if let Ok(mut c) = ctrl.try_lock() {
                         if let Ok(state) = c.get_input_state() {
                             let _ = tx.send(state);
+                        } else {
+                            sleep(Duration::from_millis(8));
                         }
                         drop(c);
                     } else {
                         sleep(Duration::from_millis(8));
                     }
                 }
-            });
-        }
+            })
+        };
+        self.input.thread = Some(handle);
     }
 
     pub(crate) fn stop_input_polling(&mut self) {
-        if let Some(flag) = &self.input_poll_stop {
-            flag.store(true, sync::atomic::Ordering::Relaxed);
-        }
-
-        self.input_poll_stop = None;
-        self.input_state_rx = None;
-        self.input_polling = false;
-        self.controller_state = None;
+        self.input.stop();
     }
 
     fn connect_controller(&mut self) {
         match DualSense::new(&self.api, None) {
             Ok(ds) => {
                 if let Ok((version, build_date, build_time)) = ds.get_firmware_info() {
-                    self.firmware_current_version = Some(version);
-                    self.firmware_build_date = Some(build_date);
-                    self.firmware_build_time = Some(build_time);
+                    self.firmware.current_version = Some(version);
+                    self.firmware.build_date = Some(build_date);
+                    self.firmware.build_time = Some(build_time);
                 } else {
-                    self.firmware_current_version = None;
-                    self.firmware_build_date = None;
-                    self.firmware_build_time = None;
+                    self.firmware.current_version = None;
+                    self.firmware.build_date = None;
+                    self.firmware.build_time = None;
                 }
 
                 self.controller_serial = Some(ds.serial().to_string());
                 self.controller_is_bt = Some(ds.is_bluetooth());
                 self.controller_product_id = Some(ds.product_id());
                 self.controller = Some(Arc::new(Mutex::new(ds)));
-                self.firmware_latest_version = None;
+                self.firmware.latest_version = None;
                 self.status_message = "Controller connected".to_string();
                 self.error_message.clear();
                 self.lightbar.enabled = true;
@@ -335,7 +310,7 @@ impl DS4UApp {
     }
 
     fn connect_via_daemon(&mut self, client: Arc<Mutex<IpcClient>>) {
-        let mut c = client.lock().unwrap();
+        let mut c = mlock(&client);
 
         if let Ok(Some((serial, pid, is_bt))) = c.get_controller_info() {
             self.controller_serial = Some(serial);
@@ -344,14 +319,14 @@ impl DS4UApp {
         }
 
         if let Ok((ver, date, time)) = c.get_firmware_info() {
-            self.firmware_current_version = Some(ver);
-            self.firmware_build_date = Some(date);
-            self.firmware_build_time = Some(time);
+            self.firmware.current_version = Some(ver);
+            self.firmware.build_date = Some(date);
+            self.firmware.build_time = Some(time);
         }
 
         drop(c);
 
-        self.firmware_latest_version = None;
+        self.firmware.latest_version = None;
         self.ipc = Some(client);
         self.status_message = "Controller connected (via daemon)".to_string();
         self.error_message.clear();
@@ -379,12 +354,12 @@ impl DS4UApp {
     pub(crate) fn update_battery(&mut self) {
         self.last_battery_update = Instant::now();
 
-        if self.firmware_updating {
+        if self.firmware.updating {
             return;
         }
 
         if let Some(ref ipc) = self.ipc.clone() {
-            match ipc.lock().unwrap().get_battery() {
+            match mlock(ipc).get_battery() {
                 Ok(info) => self.battery_info = Some(info),
                 Err(_) => {
                     self.stop_input_polling();
@@ -410,42 +385,50 @@ impl DS4UApp {
     }
 
     pub(crate) fn check_firmware_progress(&mut self) {
-        if let Some(rx) = &self.firmware_progress_rx {
-            while let Ok(update) = rx.try_recv() {
-                match update {
-                    ProgressUpdate::Progress(p) => {
-                        self.firmware_progress = p;
+        let updates: Vec<ProgressUpdate> = self
+            .firmware
+            .progress_rx
+            .as_ref()
+            .map(|rx| rx.try_iter().collect())
+            .unwrap_or_default();
+
+        for update in updates {
+            match update {
+                ProgressUpdate::Progress(p) => {
+                    self.firmware.progress = p;
+                }
+                ProgressUpdate::Status(s) => {
+                    self.firmware.status = s;
+                }
+                ProgressUpdate::Complete => {
+                    self.firmware.updating = false;
+                    self.status_message = "Firmware update completed".to_string();
+                    self.firmware.progress = 100;
+                    self.firmware.update_mode_flag = None;
+                    self.daemon_manager.set_update_in_progress(false);
+                    if self.firmware.used_daemon {
+                        self.firmware.used_daemon = false;
+                        self.controller = None;
                     }
-                    ProgressUpdate::Status(s) => {
-                        self.firmware_status = s;
+                    self.firmware.reap_thread();
+                }
+                ProgressUpdate::Error(e) => {
+                    self.firmware.updating = false;
+                    self.firmware.checking_latest = false;
+                    self.error_message = e;
+                    self.firmware.progress = 0;
+                    self.firmware.update_mode_flag = None;
+                    self.daemon_manager.set_update_in_progress(false);
+                    if self.firmware.used_daemon {
+                        self.firmware.used_daemon = false;
+                        self.controller = None;
                     }
-                    ProgressUpdate::Complete => {
-                        self.firmware_updating = false;
-                        self.status_message = "Firmware update completed".to_string();
-                        self.firmware_progress = 100;
-                        self.update_mode_flag = None;
-                        self.daemon_manager.set_update_in_progress(false);
-                        if self.fw_used_daemon {
-                            self.fw_used_daemon = false;
-                            self.controller = None;
-                        }
-                    }
-                    ProgressUpdate::Error(e) => {
-                        self.firmware_updating = false;
-                        self.firmware_checking_latest = false;
-                        self.error_message = e;
-                        self.firmware_progress = 0;
-                        self.update_mode_flag = None;
-                        self.daemon_manager.set_update_in_progress(false);
-                        if self.fw_used_daemon {
-                            self.fw_used_daemon = false;
-                            self.controller = None;
-                        }
-                    }
-                    ProgressUpdate::LatestVersion(v) => {
-                        self.firmware_latest_version = Some(v);
-                        self.firmware_checking_latest = false;
-                    }
+                    self.firmware.reap_thread();
+                }
+                ProgressUpdate::LatestVersion(v) => {
+                    self.firmware.latest_version = Some(v);
+                    self.firmware.checking_latest = false;
+                    self.firmware.reap_thread();
                 }
             }
         }
@@ -467,7 +450,7 @@ impl DS4UApp {
         match DualSense::new(&self.api, None) {
             Ok(ds) => {
                 self.controller = Some(Arc::new(Mutex::new(ds)));
-                self.fw_used_daemon = true;
+                self.firmware.used_daemon = true;
                 true
             }
             Err(e) => {
@@ -479,43 +462,28 @@ impl DS4UApp {
     }
 
     pub(crate) fn apply_lightbar(&mut self) {
-        let (r, g, b, br) = (
-            (self.lightbar.r * 255.0) as u8,
-            (self.lightbar.g * 255.0) as u8,
-            (self.lightbar.b * 255.0) as u8,
-            self.lightbar.brightness as u8,
-        );
-
-        if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc.lock().unwrap().set_lightbar(r, g, b, br);
-            return;
-        }
-
-        if let Some(controller) = &self.controller
-            && let Ok(mut ctrl) = controller.lock()
-        {
-            let _ = ctrl.set_lightbar(r, g, b, br);
+        let r = (self.lightbar.r * 255.0) as u8;
+        let g = (self.lightbar.g * 255.0) as u8;
+        let b = (self.lightbar.b * 255.0) as u8;
+        let br = self.lightbar.brightness as u8;
+        if let Some(be) = self.backend() {
+            be.set_lightbar(r, g, b, br);
         }
     }
 
     pub(crate) fn apply_lightbar_effect(&mut self) {
-        if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc
-                .lock()
-                .unwrap()
-                .set_lightbar_effect(self.lightbar_effect.clone());
+        if let Some(be) = self.backend() {
+            be.set_lightbar_effect(self.lightbar_effect.clone());
         }
     }
 
     pub(crate) fn apply_haptic_pattern(&mut self) {
-        let pattern = self.haptic_state.pattern;
-        let strength = self.haptic_state.strength;
-        let speed = self.haptic_state.speed;
-        if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc
-                .lock()
-                .unwrap()
-                .set_haptic_pattern(pattern, strength, speed);
+        if let Some(be) = self.backend() {
+            be.set_haptic_pattern(
+                self.haptic_state.pattern,
+                self.haptic_state.strength,
+                self.haptic_state.speed,
+            );
         }
     }
 
@@ -525,86 +493,42 @@ impl DS4UApp {
         self.local_gyro.smoothing = g.smoothing;
         self.local_gyro.sensitivity = g.sensitivity;
 
-        if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc
-                .lock()
-                .unwrap()
-                .set_gyro(g.enabled, g.smoothing, g.sensitivity);
+        if let Some(be) = self.backend() {
+            be.set_gyro(g.enabled, g.smoothing, g.sensitivity);
         }
     }
 
     pub(crate) fn apply_player_leds(&mut self) {
-        let leds = self.player_leds;
-
-        if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc.lock().unwrap().set_player_leds(leds);
-            return;
-        }
-
-        if let Some(controller) = &self.controller
-            && let Ok(mut ctrl) = controller.lock()
-        {
-            let _ = ctrl.set_player_leds(leds);
+        if let Some(be) = self.backend() {
+            be.set_player_leds(self.player_leds);
         }
     }
 
     pub(crate) fn apply_microphone(&mut self) {
-        let (enabled, led) = (self.microphone.enabled, self.microphone.led_state);
-
-        if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc.lock().unwrap().set_mic(enabled);
-            let _ = ipc.lock().unwrap().set_mic_led(led);
-            return;
-        }
-
-        if let Some(controller) = &self.controller
-            && let Ok(mut ctrl) = controller.lock()
-        {
-            let _ = ctrl.set_mic(enabled);
-            let _ = ctrl.set_mic_led(led);
+        if let Some(be) = self.backend() {
+            be.set_mic(self.microphone.enabled);
+            be.set_mic_led(self.microphone.led_state);
         }
     }
 
     pub(crate) fn apply_vibration(&mut self) {
-        let (r, t) = (self.vibration.rumble, self.vibration.trigger);
-
-        if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc.lock().unwrap().set_vibration(r, t);
-            return;
-        }
-
-        if let Some(controller) = &self.controller
-            && let Ok(mut ctrl) = controller.lock()
-        {
-            let _ = ctrl.set_vibration(r, t);
+        if let Some(be) = self.backend() {
+            be.set_vibration(self.vibration.rumble, self.vibration.trigger);
         }
     }
 
     pub(crate) fn apply_triggers(&mut self) {
-        let left_eff = if matches!(self.triggers.left.mode, TriggerMode::Off) {
-            None
-        } else {
-            Some(self.triggers.left.to_effect())
+        let to_eff = |cfg: &TriggerConfig| {
+            if matches!(cfg.mode, TriggerMode::Off) {
+                None
+            } else {
+                Some(cfg.to_effect())
+            }
         };
-        let right_eff = if matches!(self.triggers.right.mode, TriggerMode::Off) {
-            None
-        } else {
-            Some(self.triggers.right.to_effect())
-        };
-
-        if let Some(ref ipc) = self.ipc.clone() {
-            let l = left_eff.or(Some((0x05, [0u8; 10])));
-            let r = right_eff.or(Some((0x05, [0u8; 10])));
-            let _ = ipc.lock().unwrap().set_trigger_effects(l, r);
-            return;
-        }
-
-        if let Some(controller) = &self.controller
-            && let Ok(mut ctrl) = controller.lock()
-        {
-            let l = left_eff.or(Some((0x05, [0u8; 10])));
-            let r = right_eff.or(Some((0x05, [0u8; 10])));
-            let _ = ctrl.set_trigger_effects(l, r);
+        let l = to_eff(&self.triggers.left).or(Some(TRIGGER_OFF));
+        let r = to_eff(&self.triggers.right).or(Some(TRIGGER_OFF));
+        if let Some(be) = self.backend() {
+            be.set_trigger_effects(l, r);
         }
     }
 
@@ -700,7 +624,7 @@ impl DS4UApp {
     }
 
     pub(crate) fn check_controller_connection(&mut self) {
-        if self.firmware_updating {
+        if self.firmware.updating {
             return;
         }
 
@@ -768,7 +692,7 @@ impl DS4UApp {
     }
 
     pub(crate) fn fetch_latest_verision_async(&mut self) {
-        if self.firmware_checking_latest {
+        if self.firmware.checking_latest {
             return;
         }
 
@@ -776,10 +700,10 @@ impl DS4UApp {
             return;
         };
         let (tx, rx) = mpsc::channel();
-        let downloader = self.firmware_downloader.clone();
+        let downloader = self.firmware.downloader.clone();
 
-        self.firmware_checking_latest = true;
-        self.firmware_progress_rx = Some(rx);
+        self.firmware.checking_latest = true;
+        self.firmware.progress_rx = Some(rx);
         thread::spawn(move || match downloader.get_latest_version() {
             Ok((ds_ver, dse_ver)) => {
                 let ver = if pid == DS_PID { ds_ver } else { dse_ver };
@@ -806,10 +730,10 @@ impl DS4UApp {
 
         match result {
             Ok((ver, date, time)) => {
-                self.firmware_current_version = Some(ver);
+                self.firmware.current_version = Some(ver);
                 self.status_message = format!("Firmware: 0x{:04X}  ({} {})", ver, date, time);
-                self.firmware_build_date = Some(date);
-                self.firmware_build_time = Some(time);
+                self.firmware.build_date = Some(date);
+                self.firmware.build_time = Some(time);
                 self.error_message.clear();
             }
             Err(e) => {
@@ -828,20 +752,20 @@ impl DS4UApp {
         let pid = self.controller_product_id.unwrap_or(DS_PID);
         let ctrl = Arc::clone(self.controller.as_ref().unwrap());
         let (tx, rx) = mpsc::channel();
-        let downloader = self.firmware_downloader.clone();
+        let downloader = self.firmware.downloader.clone();
 
-        self.firmware_progress_rx = Some(rx);
-        self.firmware_updating = true;
-        self.firmware_progress = 0;
-        self.firmware_status = "Downloading latest firmware...".to_string();
+        self.firmware.progress_rx = Some(rx);
+        self.firmware.updating = true;
+        self.firmware.progress = 0;
+        self.firmware.status = "Downloading latest firmware...".to_string();
 
-        thread::spawn(move || {
+        let handle = thread::spawn(move || {
             {
-                let c = ctrl.lock().unwrap();
+                let c = mlock(&ctrl);
                 c.set_update_mode(true);
             }
 
-            let mut ctrl = ctrl.lock().unwrap();
+            let mut ctrl = mlock(&ctrl);
 
             let tx_dl = tx.clone();
 
@@ -873,6 +797,7 @@ impl DS4UApp {
                 }
             }
         });
+        self.firmware.thread = Some(handle);
     }
 
     pub(crate) fn flash_file(&mut self) {
@@ -901,10 +826,10 @@ impl DS4UApp {
         let ctrl = Arc::clone(self.controller.as_ref().unwrap());
         let (tx, rx) = mpsc::channel();
 
-        self.firmware_progress_rx = Some(rx);
-        self.firmware_updating = true;
-        self.firmware_progress = 0;
-        self.firmware_status = "Flasing from file...".to_string();
+        self.firmware.progress_rx = Some(rx);
+        self.firmware.updating = true;
+        self.firmware.progress = 0;
+        self.firmware.status = "Flasing from file...".to_string();
 
         thread::spawn(move || {
             {
@@ -955,16 +880,21 @@ impl DS4UApp {
 
         self.input_transform = t.clone();
 
-        if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc.lock().unwrap().set_input_transform(t);
+        if let Some(be) = self.backend() {
+            be.set_input_transform(t);
         }
     }
 
     pub(crate) fn create_profile(&mut self, name: &str) -> bool {
+        if let Err(e) = ProfileManager::validate_profile_name(name) {
+            self.error_message = e.to_string();
+            return false;
+        }
         if name.trim().is_empty() {
             return false;
         }
         if self.profile_manager.profile_exists(name) {
+            self.error_message = format!("Profile '{}' already exists", name);
             return false;
         }
 

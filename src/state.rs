@@ -1,4 +1,4 @@
-use crate::common::{HapticPattern, MicLedState, SensitivityCurve, SpeakerMode, TriggerMode};
+use crate::common::{HapticPattern, MicLedState, SpeakerMode};
 use crate::profiles::TriggerConfig;
 use crate::transform::GyroProcessor;
 

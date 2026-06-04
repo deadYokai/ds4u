@@ -1,4 +1,4 @@
-use egui::{Color32, RichText, Slider, Ui};
+use egui::{RichText, Slider, Ui};
 
 use crate::app::DS4UApp;
 use crate::common::{MicLedState, SpeakerMode};

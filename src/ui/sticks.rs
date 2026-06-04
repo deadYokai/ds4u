@@ -222,16 +222,23 @@ impl DS4UApp {
 
         let tc = self.theme.colors.clone();
         let mut any_changed = false;
-        let left_raw = self.controller_state.as_ref().map(|s| [s.left_x, s.left_y]);
+        let left_raw = self
+            .input
+            .controller_state
+            .as_ref()
+            .map(|s| [s.left_x, s.left_y]);
         let right_raw = self
+            .input
             .controller_state
             .as_ref()
             .map(|s| [s.right_x, s.right_y]);
         let l3 = self
+            .input
             .controller_state
             .as_ref()
             .map_or(false, |s| s.buttons & crate::inputs::BTN_L3 != 0);
         let r3 = self
+            .input
             .controller_state
             .as_ref()
             .map_or(false, |s| s.buttons & crate::inputs::BTN_R3 != 0);

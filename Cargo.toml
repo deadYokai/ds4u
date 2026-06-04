@@ -15,14 +15,11 @@ rfd = "0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 ureq = { version = "3.2.0", features = ["native-tls", "json"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
 hidapi = { version = "2.6.6", default-features = false, features = [
   "linux-native",
 ] }
-
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-hidapi = { version = "2.6.6" }
+udev = "0.9.3"
+libc = "0.2.186"
 
 [features]
 default = []

@@ -27,7 +27,7 @@ impl DS4UApp {
 
         ui.add_space(30.0);
 
-        let state = self.controller_state.as_ref();
+        let state = self.input.controller_state.as_ref();
         let buttons = state.map_or(0, |s| s.buttons);
         let dpad = state.map_or(DPAD_NEUTRAL, |s| s.dpad);
         let l2_raw = state.map_or(0u8, |s| s.l2);

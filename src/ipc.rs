@@ -1,7 +1,7 @@
 use std::{
     env,
     io::{self, BufRead, BufReader, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::Duration,
 };
 
@@ -13,7 +13,7 @@ use crate::{
     dualsense::BatteryInfo,
     inputs::ControllerState,
     profiles::Profile,
-    transform::{self, InputTransform},
+    transform::InputTransform,
 };
 
 #[cfg(unix)]

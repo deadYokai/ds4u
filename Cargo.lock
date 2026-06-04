@@ -901,10 +901,12 @@ dependencies = [
  "egui",
  "egui_extras",
  "hidapi",
+ "libc",
  "rfd",
  "roxmltree 0.21.1",
  "serde",
  "serde_json",
+ "udev",
  "ureq",
 ]
 

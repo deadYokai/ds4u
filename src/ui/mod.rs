@@ -6,6 +6,7 @@ use egui::{
 use std::time::Duration;
 
 use crate::app::DS4UApp;
+use crate::inputs::ControllerState;
 use crate::state::Section;
 use crate::style::apply_style;
 use crate::theme::{self, ThemeColors};
@@ -22,51 +23,6 @@ pub mod sidebar;
 pub mod sticks;
 pub mod touchpad;
 pub mod triggers;
-
-fn ambient(ctx: &egui::Context, theme: &theme::Theme) {
-    let screen = ctx.content_rect();
-    let painter = ctx.layer_painter(LayerId::new(egui::Order::Background, Id::new("ambient")));
-
-    painter.rect_filled(screen, 0.0, theme.colors.window_bg());
-
-    let center = pos2(
-        screen.min.x + screen.width() * 0.12,
-        screen.min.y + screen.height() * 0.18,
-    );
-
-    let [ar, ag, ab, _] = theme.colors.accent().to_array();
-
-    for (radius, a) in [(650.0, 7), (400.0, 13), (220.0, 18), (100.0, 15)] {
-        painter.circle_filled(
-            center,
-            radius,
-            Color32::from_rgba_unmultiplied(ar, ag, ab, a),
-        );
-    }
-}
-
-pub(crate) fn title(ui: &mut Ui, title: &str, subtitle: &str, c: &ThemeColors) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(title).size(30.0).color(c.text()));
-        if !subtitle.is_empty() {
-            ui.add_space(6.0);
-            ui.label(RichText::new("|").size(30.0).color(c.text_dim()));
-            ui.add_space(6.0);
-            ui.label(RichText::new(subtitle).size(30.0).color(c.text_dim()));
-        }
-    });
-}
-
-pub(crate) fn label(ui: &mut Ui, text: &str, c: &ThemeColors) {
-    ui.label(RichText::new(text).size(13.0).color(c.text_dim()));
-}
-
-pub(crate) fn sep(ui: &mut Ui, c: &ThemeColors) {
-    ui.add_space(6.0);
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(rect, 0.0, c.widget_inactive());
-    ui.add_space(6.0);
-}
 
 impl DS4UApp {
     fn render_main(&mut self, ui: &mut Ui) {
@@ -152,19 +108,21 @@ impl App for DS4UApp {
             );
 
             if needs_input {
-                if !self.input_polling {
+                if !self.input.polling {
                     self.start_input_polling();
                 }
 
-                if let Some(rx) = &self.input_state_rx {
-                    while let Ok(mut state) = rx.try_recv() {
-                        if self.ipc.is_none() {
-                            self.input_transform.apply(&mut state);
-                        }
-                        self.controller_state = Some(state);
-                    }
+                let states: Vec<ControllerState> = self
+                    .input
+                    .state_rx
+                    .as_ref()
+                    .map(|rx| rx.try_iter().collect())
+                    .unwrap_or_default();
+
+                if let Some(state) = states.into_iter().last() {
+                    self.input.controller_state = Some(state);
                 }
-            } else if self.input_polling {
+            } else if self.input.polling {
                 self.stop_input_polling();
             }
 
@@ -185,7 +143,6 @@ impl App for DS4UApp {
         self.check_firmware_progress();
 
         apply_style(ctx, &self.theme);
-        // ambient(ctx, &self.theme);
 
         SidePanel::left("sidebar")
             .exact_width(280.0)
@@ -202,7 +159,7 @@ impl App for DS4UApp {
             }
         });
 
-        if self.firmware_updating {
+        if self.firmware.updating {
             ctx.request_repaint();
         }
     }

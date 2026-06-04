@@ -133,7 +133,7 @@ impl DS4UApp {
             ui.label(RichText::new("Live readout").size(14.0).strong());
             ui.add_space(6.0);
 
-            match self.controller_state.as_ref() {
+            match self.input.controller_state.as_ref() {
                 Some(s) => {
                     Self::render_gyro_visual(ui, s.gyro, s.accel, &c);
                     ui.add_space(6.0);
