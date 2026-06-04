@@ -209,33 +209,33 @@ fn device_connection_loop(state: Arc<DaemonState>) {
     loop {
         if !state.update_in_progress.load(Ordering::Relaxed) {
             let mut dev = mlock(&state.device);
-            if dev.is_none() {
-                if let Ok(api) = HidApi::new()
-                    && let Ok(mut ds) = DualSense::new(&api, None)
-                {
-                    println!("{} controller connected: {}", TAG, ds.serial());
+            if dev.is_none()
+                && let Ok(api) = HidApi::new()
+                && let Ok(mut ds) = DualSense::new(&api, None)
+            {
+                println!("{} controller connected: {}", TAG, ds.serial());
 
-                    let snap = {
-                        let i = rlock(&state.inner);
-                        (
-                            i.lightbar_color,
-                            i.player_leds,
-                            i.mic_enabled,
-                            i.trigger_left,
-                            i.trigger_right,
-                        )
-                    };
-                    let ((r, g, b, br), leds, mic, tl, tr) = snap;
-                    let _ = ds.set_lightbar(r, g, b, br);
-                    let _ = ds.set_player_leds(leds);
-                    let _ = ds.set_mic(mic);
-                    let l = tl.or(Some((0x05, [0u8; 10])));
-                    let r2 = tr.or(Some((0x05, [0u8; 10])));
-                    let _ = ds.set_trigger_effects(l, r2);
+                let snap = {
+                    let i = rlock(&state.inner);
+                    (
+                        i.lightbar_color,
+                        i.player_leds,
+                        i.mic_enabled,
+                        i.trigger_left,
+                        i.trigger_right,
+                    )
+                };
+                let ((r, g, b, br), leds, mic, tl, tr) = snap;
+                let _ = ds.set_lightbar(r, g, b, br);
+                let _ = ds.set_player_leds(leds);
+                let _ = ds.set_mic(mic);
+                let l = tl.or(Some((0x05, [0u8; 10])));
+                let r2 = tr.or(Some((0x05, [0u8; 10])));
+                let _ = ds.set_trigger_effects(l, r2);
 
-                    *dev = Some(ds);
-                }
+                *dev = Some(ds);
             }
+
             drop(dev);
         }
 
@@ -656,7 +656,7 @@ fn effect_loop(state: Arc<DaemonState>) {
                 hsv_to_rgb(hue, 1.0, 1.0)
             }
             LightbarEffect::Strobe { speed } => {
-                if (t * speed * 2.0) as u32 % 2 == 0 {
+                if ((t * speed * 2.0) as u32).is_multiple_of(2) {
                     (base_r, base_g, base_b)
                 } else {
                     (0, 0, 0)

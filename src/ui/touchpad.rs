@@ -18,7 +18,7 @@ impl DS4UApp {
             .input
             .controller_state
             .as_ref()
-            .map_or(false, |s| s.buttons & BTN_TOUCHPAD != 0);
+            .is_some_and(|s| s.buttons & BTN_TOUCHPAD != 0);
 
         if pressed {
             painter.rect_filled(
@@ -98,10 +98,9 @@ impl DS4UApp {
         ui.label(RichText::new("Live preview").size(14.0).strong());
         ui.add_space(6.0);
 
-        if self.input.controller_state.is_some() {
+        if let Some(s) = &self.input.controller_state {
             Self::render_touchpad_visual(ui, self, &c);
             ui.add_space(10.0);
-            let s = self.input.controller_state.as_ref().unwrap();
             let mut line = format!("active: {}", s.touch_count);
             for (i, pt) in s.touch_points.iter().enumerate() {
                 if pt.active {

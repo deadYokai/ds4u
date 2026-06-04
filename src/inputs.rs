@@ -27,23 +27,12 @@ pub const BTN_PS: u32 = 1 << 12;
 pub const BTN_TOUCHPAD: u32 = 1 << 13;
 pub const BTN_MUTE: u32 = 1 << 14;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct TouchPoint {
     pub active: bool,
     pub id: u8,
     pub x: u16,
     pub y: u16,
-}
-
-impl Default for TouchPoint {
-    fn default() -> Self {
-        Self {
-            active: false,
-            id: 0,
-            x: 0,
-            y: 0,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize)]

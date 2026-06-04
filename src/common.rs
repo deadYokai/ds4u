@@ -40,31 +40,27 @@ pub enum SpeakerMode {
     Both,
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum LightbarEffect {
+    #[default]
     None,
-    Breath { speed: f32 },
-    Rainbow { speed: f32 },
-    Strobe { speed: f32 },
+    Breath {
+        speed: f32,
+    },
+    Rainbow {
+        speed: f32,
+    },
+    Strobe {
+        speed: f32,
+    },
 }
 
-impl Default for LightbarEffect {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub enum HapticPattern {
+    #[default]
     None,
     Constant,
     Pulse,
     Ramp,
     Wave,
-}
-
-impl Default for HapticPattern {
-    fn default() -> Self {
-        Self::None
-    }
 }

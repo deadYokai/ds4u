@@ -16,7 +16,6 @@ use crate::{
     transform::InputTransform,
 };
 
-#[cfg(unix)]
 mod transport {
     use std::{
         io,
@@ -41,44 +40,14 @@ mod transport {
     }
 }
 
-#[cfg(not(unix))]
-mod transport {
-    use std::{
-        io,
-        net::{SocketAddr, TcpListener, TcpStream},
-        time::Duration,
-    };
-    pub type Addr = SocketAddr;
-    pub type Stream = TcpStream;
-    pub type Listener = TcpListener;
-    pub fn connect(addr: &Addr) -> io::Result<Stream> {
-        TcpStream::connect(addr)
-    }
-    pub fn bind(addr: &Addr) -> io::Result<Listener> {
-        TcpListener::bind(addr)
-    }
-    pub fn set_timeout(s: &Stream, d: Duration) -> io::Result<()> {
-        s.set_read_timeout(Some(d))
-    }
-    pub fn addr_to_string(addr: &Addr) -> String {
-        addr.to_string()
-    }
-}
-
 pub type DaemonAddr = transport::Addr;
 pub type DaemonStream = transport::Stream;
 pub type DaemonListener = transport::Listener;
 
-#[cfg(unix)]
 pub fn daemon_endpoint() -> PathBuf {
     dirs::runtime_dir()
         .unwrap_or_else(env::temp_dir)
         .join("ds4u.socket")
-}
-
-#[cfg(not(unix))]
-pub fn daemon_endpoint() -> DaemonAddr {
-    "127.0.0.1:45623".parse().expect("hardcoded addr is valid")
 }
 
 #[inline]
@@ -90,16 +59,12 @@ pub fn bind_daemon(addr: &DaemonAddr) -> io::Result<DaemonListener> {
     transport::bind(addr)
 }
 
-#[cfg(unix)]
 pub fn cleanup_endpoint(addr: &DaemonAddr) {
     if addr.exists() {
         use std::fs;
         let _ = fs::remove_file(addr);
     }
 }
-
-#[cfg(not(unix))]
-pub fn cleanup_endpoint(_addr: &DaemonAddr) {}
 
 pub fn addr_display(addr: &DaemonAddr) -> String {
     transport::addr_to_string(addr)
@@ -216,7 +181,6 @@ pub enum DaemonResponse {
 }
 
 pub struct IpcClient {
-    pub addr: DaemonAddr,
     reader: BufReader<DaemonStream>,
     writer: DaemonStream,
 }
@@ -228,7 +192,6 @@ impl IpcClient {
         let writer = stream.try_clone()?;
 
         Ok(Self {
-            addr: addr.clone(),
             reader: BufReader::new(stream),
             writer,
         })
@@ -310,14 +273,6 @@ impl IpcClient {
             brightness,
         })
         .map(|_| ())
-    }
-
-    pub fn set_lightbar_enabled(&mut self, enabled: bool) -> Result<()> {
-        match self.request(DaemonCommand::SetLightbarEnabled { enabled })? {
-            DaemonResponse::Ok => Ok(()),
-            DaemonResponse::Error { message } => bail!("{}", message),
-            _ => Ok(()),
-        }
     }
 
     pub fn set_player_leds(&mut self, leds: u8) -> Result<()> {

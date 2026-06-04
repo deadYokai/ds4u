@@ -65,6 +65,11 @@ const DS_BATTERY_THRESHOLD: u8 = 10;
 
 const DS_TRIGGER_EFFECT_OFF: u8 = 0x05;
 const DS_TRIGGER_EFFECT_FEEDBACK: u8 = 0x21;
+const DS_TRIGGER_EFFECT_BOW: u8 = 0x22;
+const DS_TRIGGER_EFFECT_GALLOPING: u8 = 0x23;
+const DS_TRIGGER_EFFECT_WEAPON: u8 = 0x25;
+const DS_TRIGGER_EFFECT_VIBRATION: u8 = 0x26;
+const DS_TRIGGER_EFFECT_MACHINE: u8 = 0x27;
 
 const DS_FEATURE_REPORT_FIRMWARE_INFO: u8 = 0x20;
 
@@ -122,11 +127,11 @@ impl DualSense {
                 true
             })
             .ok_or_else(|| {
-                if serial.is_some() {
+                if let Some(s) = serial {
                     anyhow!(
                         "DualSense controller '{}' not found.
 Check connection and try refreshing",
-                        serial.unwrap()
+                        s
                     )
                 } else {
                     anyhow!(
@@ -278,7 +283,7 @@ Please connect your controller via USB or Bluetooth."
         let mut touch_points = [TouchPoint::default(), TouchPoint::default()];
         let mut touch_count: u8 = 0;
 
-        for i in 0..2 {
+        for (i, tp) in touch_points.iter_mut().enumerate() {
             let base = 32 + i * 4;
             let b0 = d[base];
             let active = (b0 & 0x80) == 0;
@@ -287,7 +292,7 @@ Please connect your controller via USB or Bluetooth."
                 let x = (d[base + 1] as u16) | (((d[base + 2] & 0x0f) as u16) << 8);
                 let y = ((d[base + 2] >> 4) as u16) | ((d[base + 3] as u16) << 4);
 
-                touch_points[i] = TouchPoint {
+                *tp = TouchPoint {
                     active: true,
                     id: b0 & 0x7f,
                     x: x.min(TOUCHPAD_MAX_X - 1),

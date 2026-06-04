@@ -165,11 +165,11 @@ impl GyroProcessor {
             return;
         }
         let s = self.smoothing.clamp(0.0, 0.95);
-        for i in 0..3 {
-            let cur = gyro[i] as f32 * self.sensitivity;
+        for (i, g) in gyro.iter_mut().enumerate().take(3) {
+            let cur = *g as f32 * self.sensitivity;
             let smoothed = self.prev[i] * s + cur * (1.0 - s);
             self.prev[i] = smoothed;
-            gyro[i] = smoothed.clamp(-32768.0, 32767.0) as i16;
+            *g = smoothed.clamp(-32768.0, 32767.0) as i16;
         }
     }
 }

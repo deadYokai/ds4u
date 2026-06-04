@@ -236,12 +236,12 @@ impl DS4UApp {
             .input
             .controller_state
             .as_ref()
-            .map_or(false, |s| s.buttons & crate::inputs::BTN_L3 != 0);
+            .is_some_and(|s| s.buttons & crate::inputs::BTN_L3 != 0);
         let r3 = self
             .input
             .controller_state
             .as_ref()
-            .map_or(false, |s| s.buttons & crate::inputs::BTN_R3 != 0);
+            .is_some_and(|s| s.buttons & crate::inputs::BTN_R3 != 0);
 
         ui.columns(2, |cols| {
             cols[0].label(RichText::new("Left Stick").size(16.0).strong());

@@ -94,9 +94,8 @@ fn main() -> Result<(), eframe::Error> {
                         std::process::exit(1);
                     }
                 }
-                match client.get_battery() {
-                    Ok(b) => println!("battery    {:?}", b),
-                    Err(_) => {}
+                if let Ok(b) = client.get_battery() {
+                    println!("battery    {:?}", b)
                 }
                 return Ok(());
             }

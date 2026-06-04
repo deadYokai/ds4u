@@ -1,15 +1,11 @@
 use eframe::App;
-use egui::{
-    CentralPanel, Color32, Id, Image, LayerId, RichText, Sense, SidePanel, Ui, include_image, pos2,
-    vec2,
-};
+use egui::{CentralPanel, Color32, Image, RichText, SidePanel, Ui, include_image};
 use std::time::Duration;
 
 use crate::app::DS4UApp;
 use crate::inputs::ControllerState;
 use crate::state::Section;
 use crate::style::apply_style;
-use crate::theme::{self, ThemeColors};
 
 pub mod audio;
 pub mod firmware;

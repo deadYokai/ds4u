@@ -35,7 +35,6 @@ pub(crate) struct DS4UApp {
     pub(crate) last_connection_check: Instant,
 
     pub(crate) active_section: Section,
-    pub(crate) show_profiles_panel: bool,
 
     pub(crate) controller_is_bt: Option<bool>,
     pub(crate) controller_product_id: Option<u16>,
@@ -96,7 +95,6 @@ impl DS4UApp {
             last_connection_check: Instant::now(),
 
             active_section: Section::Inputs,
-            show_profiles_panel: false,
 
             controller_is_bt: None,
             controller_product_id: None,
