@@ -47,11 +47,7 @@ impl DS4UApp {
 
         let b: Option<bool> =
             if let (Some(cur), Some(latest)) = (self.firmware.current_version, &latest_str) {
-                let latest_int = latest
-                    .to_lowercase()
-                    .trim_start_matches("0x")
-                    .parse::<u16>()
-                    .unwrap();
+                let latest_int = u16::from_str_radix(latest.trim_start_matches("0x"), 16).unwrap();
                 Some(latest_int > cur)
             } else {
                 None

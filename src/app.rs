@@ -765,18 +765,20 @@ impl DS4UApp {
 
             let mut ctrl = mlock(&ctrl);
 
-            let tx_dl = tx.clone();
-
-            let fw_data = match downloader.download_latest_firmware(pid, move |p| {
-                let _ = tx_dl.send(ProgressUpdate::Progress(p / 2));
+            let fw_data = match downloader.download_latest_firmware(pid, {
+                let tx = tx.clone();
+                move |p| {
+                    let _ = tx.send(ProgressUpdate::Progress(p / 2));
+                }
             }) {
                 Ok(d) => d,
                 Err(e) => {
-                    ctrl.set_update_mode(false);
                     let _ = tx.send(ProgressUpdate::Error(e.to_string()));
                     return;
                 }
             };
+
+            ctrl.set_update_mode(false);
 
             let _ = tx.send(ProgressUpdate::Status("Flashing...".to_string()));
             let tx_flash = tx.clone();
