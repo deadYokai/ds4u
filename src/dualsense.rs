@@ -808,13 +808,13 @@ Please connect your controller via USB or Bluetooth."
                         sleep(Duration::from_millis(10));
                         continue;
                     }
-                    0x01 => bail!("Start error 0x01: firmware rejected"),
-                    0x02 => bail!("Start error 0x02: invalid firmware"),
-                    0x03 => bail!("Start error 0x03: invalid firmware"),
-                    0x05 => bail!("Start error 0x05: battery or power error"),
-                    0x06 => bail!("Start error 0x06: temperature or safety error"),
-                    0x11 => bail!("Start error 0x11: invalid firmware"),
-                    0xFF => bail!("Start error 0xFF: internal error"),
+                    0x01 => bail!("Start error 0x01: CMAC check error"),
+                    0x02 => bail!("Start error 0x02: Version check error"),
+                    0x03 => bail!("Start error 0x03: Capability info error"),
+                    0x05 => bail!("Start error 0x05: Flash/erase error"),
+                    0x06 => bail!("Start error 0x06: Info not received"),
+                    0x11 => bail!("Start error 0x11: Common param error"),
+                    0xFF => bail!("Start error 0xFF: Internal error"),
                     _ => bail!("Start unknown status: 0x{:02x}", status),
                 },
 
@@ -824,10 +824,10 @@ Please connect your controller via USB or Bluetooth."
                         sleep(Duration::from_millis(10));
                         continue;
                     }
-                    0x02 => bail!("Write error 0x02: invalid firmware data"),
-                    0x04 => bail!("Write error 0x04: invalid firmware data"),
-                    0x11 => bail!("Write error 0x11: invalid firmware"),
-                    0xFF => bail!("Write error 0xFF: internal error"),
+                    0x02 => bail!("Write error 0x02: Image flash/write error"),
+                    0x04 => bail!("Write error 0x04: Update not started"),
+                    0x11 => bail!("Write error 0x11: Common param error"),
+                    0xFF => bail!("Write error 0xFF: Internal error"),
                     _ => bail!("Write unknown status: 0x{:02x}", status),
                 },
 
@@ -837,12 +837,12 @@ Please connect your controller via USB or Bluetooth."
                         sleep(Duration::from_millis(10));
                         continue;
                     }
-                    0x01 => bail!("Verify error 0x01: firmware rejected"),
-                    0x02 => bail!("Verify error 0x02: checksum mismatch"),
-                    0x03 => bail!("Verify error 0x03: invalid firmware"),
-                    0x04 => bail!("Verify error 0x04: invalid firmware"),
-                    0x11 => bail!("Verify error 0x11: invalid firmware"),
-                    0xFF => bail!("Verify error 0xFF: internal error"),
+                    0x01 => bail!("Verify error 0x01: CMAC check error"),
+                    0x02 => bail!("Verify error 0x02: Version check error"),
+                    0x03 => bail!("Verify error 0x03: Capability info error"),
+                    0x04 => bail!("Verify error 0x04: Firmware body CMAC check error"),
+                    0x11 => bail!("Verify error 0x11: Common param error"),
+                    0xFF => bail!("Verify error 0xFF: Internal error"),
                     _ => bail!("Verify unknown status: 0x{:02x}", status),
                 },
 
