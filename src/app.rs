@@ -406,6 +406,7 @@ impl DS4UApp {
                 }
                 ProgressUpdate::Complete => {
                     self.firmware.updating = false;
+                    self.firmware.last_flash_result = Some(Ok(()));
                     self.status_message = "Firmware update completed".to_string();
                     self.firmware.progress = 100;
                     self.firmware.update_mode_flag = None;
@@ -417,8 +418,12 @@ impl DS4UApp {
                     self.firmware.reap_thread();
                 }
                 ProgressUpdate::Error(e) => {
+                    let was_flashing = self.firmware.updating;
                     self.firmware.updating = false;
                     self.firmware.checking_latest = false;
+                    if was_flashing {
+                        self.firmware.last_flash_result = Some(Err(e.clone()));
+                    }
                     self.error_message = e;
                     self.firmware.progress = 0;
                     self.firmware.update_mode_flag = None;
@@ -761,6 +766,7 @@ impl DS4UApp {
         self.firmware.progress_rx = Some(rx);
         self.firmware.updating = true;
         self.firmware.progress = 0;
+        self.firmware.last_flash_result = None;
         self.firmware.status = "Downloading latest firmware...".to_string();
 
         let handle = thread::spawn(move || {
@@ -835,6 +841,7 @@ impl DS4UApp {
         self.firmware.progress_rx = Some(rx);
         self.firmware.updating = true;
         self.firmware.progress = 0;
+        self.firmware.last_flash_result = None;
         self.firmware.status = "Flasing from file...".to_string();
 
         thread::spawn(move || {

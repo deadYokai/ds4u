@@ -23,6 +23,7 @@ pub(crate) struct FirmwareController {
     pub(crate) checking_latest: bool,
     pub(crate) build_date: Option<String>,
     pub(crate) build_time: Option<String>,
+    pub(crate) last_flash_result: Option<Result<(), String>>,
 }
 
 impl FirmwareController {
@@ -44,6 +45,7 @@ impl FirmwareController {
             checking_latest: false,
             build_date: None,
             build_time: None,
+            last_flash_result: None,
         }
     }
 

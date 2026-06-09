@@ -350,7 +350,7 @@ impl DS4UApp {
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
                         ui.label(
-                            RichText::new("RESPONSE CURVE")
+                            RichText::new("Curves")
                                 .size(15.0)
                                 .strong()
                                 .color(c.accent())
@@ -363,6 +363,14 @@ impl DS4UApp {
                         &self.sticks.left_curve,
                         self.sticks.left_deadzone,
                         self.sticks.left_outer_deadzone,
+                        &c,
+                    );
+                    ui.add_space(10.0);
+                    Self::render_curve_visual(
+                        ui,
+                        &self.sticks.right_curve,
+                        self.sticks.right_deadzone,
+                        self.sticks.right_outer_deadzone,
                         &c,
                     );
                 },
@@ -378,7 +386,7 @@ impl DS4UApp {
                 |ui| {
                     ui.add_space(14.0);
                     ui.label(
-                        RichText::new("LIVE PREVIEW")
+                        RichText::new("Preview")
                             .size(15.0)
                             .strong()
                             .color(c.accent())
