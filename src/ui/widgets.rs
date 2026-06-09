@@ -29,13 +29,7 @@ pub fn ds_section(ui: &mut Ui, c: &ThemeColors, text: &str) {
     ui.add_space(9.0);
     ui.horizontal(|ui| {
         ui.add_space(ROW_PAD_X);
-        ui.label(
-            RichText::new(text.to_uppercase())
-                .size(15.0)
-                .strong()
-                .color(c.accent())
-                .extra_letter_spacing(2.0),
-        );
+        ds_panel_title(ui, c, text.to_uppercase());
     });
     ui.add_space(3.0);
 }
@@ -70,50 +64,68 @@ pub fn text_of(ui: &Ui) -> Color32 {
 }
 
 #[inline]
-pub fn sep_of(ui: &Ui) -> Color32 {
-    with_alpha(text_of(ui), 18)
-}
-
-#[inline]
 pub fn sep_color(c: &ThemeColors) -> Color32 {
     with_alpha(c.text(), 18)
 }
 
 pub fn ds_row<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let w = ui.available_width();
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, ROW_HEIGHT), Sense::hover());
-    let accent = accent_of(ui);
-    let sep = sep_of(ui);
-    let p = ui.painter().clone();
-    if resp.hovered() {
-        p.rect_filled(rect, 0.0, with_alpha(accent, 10));
-        let sweep = with_alpha(accent, 220);
-        p.rect_filled(
-            Rect::from_min_size(pos2(rect.min.x, rect.min.y), vec2(rect.width(), 2.0)),
-            0.0,
-            sweep,
-        );
-        p.rect_filled(
-            Rect::from_min_size(pos2(rect.min.x, rect.max.y - 2.0), vec2(rect.width(), 2.0)),
-            0.0,
-            sweep,
-        );
-    }
-    p.rect_filled(
-        Rect::from_min_size(pos2(rect.min.x, rect.max.y - 1.0), vec2(rect.width(), 1.0)),
-        0.0,
-        sep,
-    );
+    let top_left = ui.cursor().min;
+    let bg_idx = ui.painter().add(egui::Shape::Noop);
 
-    let inner = rect.shrink2(vec2(ROW_PAD_X, 0.0));
+    let inner_rect = Rect::from_min_max(
+        pos2(top_left.x + ROW_PAD_X, top_left.y),
+        pos2(top_left.x + w - ROW_PAD_X, top_left.y + ROW_HEIGHT),
+    );
     let mut child = ui.new_child(
         UiBuilder::new()
-            .max_rect(inner)
+            .max_rect(inner_rect)
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
-    add(&mut child)
+    let result = add(&mut child);
+
+    let used = child.min_rect();
+    let row_h = used.height().max(ROW_HEIGHT);
+    let rect = Rect::from_min_size(top_left, vec2(w, row_h));
+
+    ui.allocate_rect(rect, Sense::hover());
+
+    let hovered = ui.rect_contains_pointer(rect);
+    let accent = accent_of(ui);
+    let text = text_of(ui);
+
+    let mut shapes: Vec<egui::Shape> = Vec::new();
+    if hovered {
+        shapes.push(egui::Shape::rect_filled(rect, 0.0, with_alpha(accent, 10)));
+        let top = Rect::from_min_size(pos2(rect.min.x, rect.min.y), vec2(rect.width(), 2.0));
+        push_gradient_line(&mut shapes, top, accent, 220);
+        let bot = Rect::from_min_size(pos2(rect.min.x, rect.max.y - 2.0), vec2(rect.width(), 2.0));
+        push_gradient_line(&mut shapes, bot, accent, 220);
+    }
+    let baseline = Rect::from_min_size(pos2(rect.min.x, rect.max.y - 1.0), vec2(rect.width(), 1.0));
+    push_gradient_line(&mut shapes, baseline, text, 38);
+    ui.painter().set(bg_idx, egui::Shape::Vec(shapes));
+
+    result
 }
 
+fn push_gradient_line(out: &mut Vec<egui::Shape>, rect: Rect, color: Color32, peak_alpha: u8) {
+    let steps = 80;
+    let peak = peak_alpha as f32;
+    for i in 0..steps {
+        let t0 = i as f32 / steps as f32;
+        let t1 = (i + 1) as f32 / steps as f32;
+        let m = (0.5 - (t0 - 0.5).abs()) * 2.0;
+        let a = (m * peak) as u8;
+        let x0 = rect.min.x + t0 * rect.width();
+        let x1 = rect.min.x + t1 * rect.width();
+        out.push(egui::Shape::rect_filled(
+            Rect::from_min_max(pos2(x0, rect.min.y), pos2(x1, rect.max.y)),
+            0.0,
+            with_alpha(color, a),
+        ));
+    }
+}
 pub fn ds_label(ui: &mut Ui, text: &str) {
     let col = with_alpha(text_of(ui), 204);
     ui.add_sized(
@@ -146,7 +158,8 @@ pub fn ds_slider(
     value: &mut f32,
     range: std::ops::RangeInclusive<f32>,
 ) -> Response {
-    let w = ui.available_width();
+    let reserved = VAL_WIDTH + 14.0;
+    let w = (ui.available_width() - reserved).max(40.0);
     let (rect, mut resp) = ui.allocate_exact_size(vec2(w, 18.0), Sense::click_and_drag());
 
     let (min, max) = (*range.start(), *range.end());
@@ -322,7 +335,7 @@ pub fn ds_swatch(ui: &mut Ui, color: Color32, active: bool) -> Response {
     resp
 }
 
-pub fn ds_panel_title(ui: &mut Ui, c: &ThemeColors, text: &str) {
+pub fn ds_panel_title(ui: &mut Ui, c: &ThemeColors, text: String) {
     ui.label(
         RichText::new(text.to_uppercase())
             .size(15.0)
@@ -332,24 +345,28 @@ pub fn ds_panel_title(ui: &mut Ui, c: &ThemeColors, text: &str) {
     );
 }
 
-pub fn ds_gradient_line(ui: &mut Ui) {
-    let base = text_of(ui);
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 2.0), Sense::hover());
-    let p = ui.painter();
+fn paint_gradient_line_at(p: &egui::Painter, rect: Rect, color: Color32, peak_alpha: u8) {
     let steps = 80;
+    let peak = peak_alpha as f32;
     for i in 0..steps {
         let t0 = i as f32 / steps as f32;
         let t1 = (i + 1) as f32 / steps as f32;
         let m = (0.5 - (t0 - 0.5).abs()) * 2.0;
-        let a = (m * 76.0) as u8;
+        let a = (m * peak) as u8;
         let x0 = rect.min.x + t0 * rect.width();
         let x1 = rect.min.x + t1 * rect.width();
         p.rect_filled(
             Rect::from_min_max(pos2(x0, rect.min.y), pos2(x1, rect.max.y)),
             0.0,
-            with_alpha(base, a),
+            with_alpha(color, a),
         );
     }
+}
+
+pub fn ds_gradient_line(ui: &mut Ui) {
+    let base = text_of(ui);
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 2.0), Sense::hover());
+    paint_gradient_line_at(&ui.painter(), rect, base, 76);
 }
 
 pub fn paint_dotgrid(ui: &Ui, rect: Rect) {

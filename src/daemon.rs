@@ -809,6 +809,10 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform) 
             ok_or_err!(ds.set_vibration(rumble, trigger))
         }
 
+        DaemonCommand::SetRumble { left, right } => {
+            ok_or_err!(ds.set_rumble(left, right))
+        }
+
         DaemonCommand::SetSpeaker { mode } => ok_or_err!(ds.set_speaker(&mode)),
 
         DaemonCommand::SetVolume { volume } => ok_or_err!(ds.set_volume(volume)),

@@ -1,9 +1,12 @@
 use egui::{Color32, CornerRadius, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use crate::app::DS4UApp;
+use crate::common::TouchpadMode;
 use crate::inputs::{BTN_TOUCHPAD, TOUCHPAD_MAX_X, TOUCHPAD_MAX_Y};
 use crate::theme::ThemeColors;
-use crate::ui::widgets::{ROW_PAD_X, ds_label, ds_row, ds_section, ds_toggle};
+use crate::ui::widgets::{
+    ROW_PAD_X, ds_label, ds_pill_button, ds_row, ds_section, ds_slider, ds_toggle,
+};
 
 impl DS4UApp {
     fn render_touchpad_visual(ui: &mut Ui, app: &DS4UApp, c: &ThemeColors) {
@@ -63,22 +66,74 @@ impl DS4UApp {
     pub(crate) fn render_touchpad_section(&mut self, ui: &mut Ui) {
         let c = self.theme.colors.clone();
         let mut changed = false;
+        let mut show_only_changed = false;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ds_section(ui, &c, "Touchpad");
-
-                ds_row(ui, |ui| {
-                    ds_label(ui, "Input");
-                    if ds_toggle(ui, &c, &mut self.touchpad.enabled).changed() {
-                        changed = true;
-                    }
+                ui.horizontal(|ui| {
+                    ui.add_space(ROW_PAD_X);
+                    ui.label(
+                        RichText::new("Currently no effect")
+                            .size(13.0)
+                            .italics()
+                            .color(c.text_dim()),
+                    );
                 });
+                ui.add_space(2.0);
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Mode");
+                    ui.horizontal_wrapped(|ui| {
+                        for (m, label) in &[
+                            (TouchpadMode::Mouse, "Mouse"),
+                            (TouchpadMode::GesturesOnly, "Gestures only"),
+                            (TouchpadMode::PassThrough, "Pass-through"),
+                            (TouchpadMode::Disabled, "Disabled"),
+                        ] {
+                            let active = self.touchpad.mode == *m;
+                            if ds_pill_button(ui, &c, label, active).clicked() && !active {
+                                self.touchpad.mode = *m;
+                                changed = true;
+                            }
+                        }
+                    });
+                });
+
+                let interactive = !matches!(self.touchpad.mode, TouchpadMode::Disabled);
+
+                if interactive && matches!(self.touchpad.mode, TouchpadMode::Mouse) {
+                    ds_row(ui, |ui| {
+                        ds_label(ui, "Sensitivity");
+                        if ds_slider(ui, &c, &mut self.touchpad.sensitivity, 0.1..=3.0).changed() {
+                            changed = true;
+                        }
+                        crate::ui::widgets::ds_value_pct(
+                            ui,
+                            (self.touchpad.sensitivity / 3.0) * 100.0,
+                        );
+                    });
+
+                    ds_row(ui, |ui| {
+                        ds_label(ui, "Tap to click");
+                        if ds_toggle(ui, &c, &mut self.touchpad.tap_to_click).changed() {
+                            changed = true;
+                        }
+                    });
+
+                    ds_row(ui, |ui| {
+                        ds_label(ui, "Natural scrolling");
+                        if ds_toggle(ui, &c, &mut self.touchpad.natural_scrolling).changed() {
+                            changed = true;
+                        }
+                    });
+                }
+
+                ds_section(ui, &c, "Display");
                 ds_row(ui, |ui| {
                     ds_label(ui, "Show overlay");
                     if ds_toggle(ui, &c, &mut self.touchpad.show_overlay).changed() {
-                        self.sync_profile();
+                        show_only_changed = true;
                     }
                 });
 
@@ -119,6 +174,8 @@ impl DS4UApp {
 
         if changed {
             self.apply_input_transform();
+            self.sync_profile();
+        } else if show_only_changed {
             self.sync_profile();
         }
     }

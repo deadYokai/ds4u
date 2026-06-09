@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+use crate::common::TouchpadMode;
 use crate::{common::SensitivityCurve, inputs::*};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -49,6 +50,8 @@ pub struct InputTransform {
 
     #[serde(default)]
     pub touchpad_enabled: bool,
+    #[serde(default)]
+    pub touchpad_mode: TouchpadMode,
 }
 
 impl Default for InputTransform {
@@ -70,6 +73,7 @@ impl Default for InputTransform {
             button_remap: HashMap::new(),
             disabled_buttons: HashSet::new(),
             touchpad_enabled: true,
+            touchpad_mode: TouchpadMode::Mouse,
         }
     }
 }
@@ -126,7 +130,13 @@ impl InputTransform {
             s.dpad = d;
         }
 
-        if !self.touchpad_enabled {
+        let should_zero = match self.touchpad_mode {
+            TouchpadMode::Disabled => true,
+            TouchpadMode::GesturesOnly => s.touch_count < 2,
+            TouchpadMode::Mouse | TouchpadMode::PassThrough => false,
+        };
+
+        if should_zero {
             for p in s.touch_points.iter_mut() {
                 p.active = false;
                 p.x = 0;

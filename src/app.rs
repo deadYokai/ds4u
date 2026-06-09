@@ -160,8 +160,11 @@ impl DS4UApp {
             },
 
             touchpad: TouchpadState {
-                enabled: true,
                 show_overlay: true,
+                mode: TouchpadMode::Mouse,
+                tap_to_click: true,
+                natural_scrolling: false,
+                sensitivity: 1.0,
             },
 
             haptic_state: HapticState {
@@ -526,6 +529,32 @@ impl DS4UApp {
         }
     }
 
+    pub(crate) fn test_rumble(&self, amp_l: u8, amp_r: u8, duration_ms: u64) {
+        let ctrl = self.controller.clone();
+        let ipc = self.ipc.clone();
+        std::thread::spawn(move || {
+            if let Some(ctrl) = &ctrl {
+                if let Ok(mut c) = ctrl.lock() {
+                    let _ = c.set_rumble(amp_l, amp_r);
+                }
+            } else if let Some(ipc) = &ipc {
+                if let Ok(mut c) = ipc.lock() {
+                    let _ = c.set_rumble(amp_l, amp_r);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(duration_ms));
+            if let Some(ctrl) = &ctrl {
+                if let Ok(mut c) = ctrl.lock() {
+                    let _ = c.set_rumble(0, 0);
+                }
+            } else if let Some(ipc) = &ipc {
+                if let Ok(mut c) = ipc.lock() {
+                    let _ = c.set_rumble(0, 0);
+                }
+            }
+        });
+    }
+
     pub(crate) fn apply_triggers(&mut self) {
         let to_eff = |cfg: &TriggerConfig| {
             if matches!(cfg.mode, TriggerMode::Off) {
@@ -565,8 +594,15 @@ impl DS4UApp {
         self.triggers.right = profile.trigger_right_config.clone();
 
         self.gyro.processor = profile.to_gyro_processor();
-        self.touchpad.enabled = profile.touchpad_enabled;
+        self.touchpad.mode = if !profile.touchpad_enabled {
+            TouchpadMode::Disabled
+        } else {
+            profile.touchpad_mode
+        };
         self.touchpad.show_overlay = profile.touchpad_show_overlay;
+        self.touchpad.tap_to_click = profile.touchpad_tap_to_click;
+        self.touchpad.natural_scrolling = profile.touchpad_natural_scrolling;
+        self.touchpad.sensitivity = profile.touchpad_sensitivity;
 
         self.haptic_state.pattern = profile.haptic_pattern;
         self.haptic_state.strength = profile.haptic_strength;
@@ -618,8 +654,12 @@ impl DS4UApp {
         profile.trigger_right_config = self.triggers.right.clone();
 
         profile.gyro = self.gyro.processor.clone();
-        profile.touchpad_enabled = self.touchpad.enabled;
+        profile.touchpad_enabled = !matches!(self.touchpad.mode, TouchpadMode::Disabled);
+        profile.touchpad_mode = self.touchpad.mode;
         profile.touchpad_show_overlay = self.touchpad.show_overlay;
+        profile.touchpad_tap_to_click = self.touchpad.tap_to_click;
+        profile.touchpad_natural_scrolling = self.touchpad.natural_scrolling;
+        profile.touchpad_sensitivity = self.touchpad.sensitivity;
 
         profile.haptic_pattern = self.haptic_state.pattern;
         profile.haptic_strength = self.haptic_state.strength;
@@ -887,7 +927,7 @@ impl DS4UApp {
         t.right_invert_x = self.sticks.right_invert_x;
         t.right_invert_y = self.sticks.right_invert_y;
         t.stick_swap = self.sticks.swap;
-        t.touchpad_enabled = self.touchpad.enabled;
+        t.touchpad_mode = self.touchpad.mode;
         t.trigger_left = self.triggers.left.deadband.clone();
         t.trigger_right = self.triggers.right.deadband.clone();
 

@@ -111,6 +111,11 @@ pub enum DaemonCommand {
         rumble: u8,
         trigger: u8,
     },
+    SetRumble {
+        left: u8,
+        right: u8,
+    },
+
     SetSpeaker {
         mode: String,
     },
@@ -341,6 +346,14 @@ impl IpcClient {
 
     pub fn set_vibration(&mut self, rumble: u8, trigger: u8) -> Result<()> {
         match self.request(DaemonCommand::SetVibration { rumble, trigger })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn set_rumble(&mut self, left: u8, right: u8) -> Result<()> {
+        match self.request(DaemonCommand::SetRumble { left, right })? {
             DaemonResponse::Ok => Ok(()),
             DaemonResponse::Error { message } => bail!("{}", message),
             _ => Ok(()),

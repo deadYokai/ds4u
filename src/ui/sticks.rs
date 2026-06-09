@@ -1,10 +1,22 @@
-use egui::{Align2, Color32, Pos2, RichText, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align2, Color32, Pos2, Sense, Stroke, Ui, pos2, vec2};
 
 use crate::app::DS4UApp;
 use crate::common::SensitivityCurve;
 use crate::theme::ThemeColors;
 
 use super::widgets::{ds_label, ds_row, ds_section, ds_slider, ds_toggle, ds_value_pct};
+
+struct StickSide<'a> {
+    label: &'a str,
+    combo_id: &'a str,
+    deadzone: &'a mut f32,
+    outer: &'a mut f32,
+    curve: &'a mut SensitivityCurve,
+    invert_x: &'a mut bool,
+    invert_y: &'a mut bool,
+    raw: Option<[u8; 2]>,
+    pressed: bool,
+}
 
 fn curve_value(curve: &SensitivityCurve, t: f32) -> f32 {
     match curve {
@@ -199,9 +211,60 @@ impl DS4UApp {
         changed
     }
 
+    fn render_stick_panel(ui: &mut Ui, c: &ThemeColors, side: StickSide<'_>) -> bool {
+        let mut changed = false;
+
+        ds_section(ui, c, side.label);
+
+        ds_row(ui, |ui| {
+            ds_label(ui, "Deadzone");
+            if ds_slider(ui, c, side.deadzone, 0.0..=0.5).changed() {
+                changed = true;
+            }
+            ds_value_pct(ui, *side.deadzone * 100.0);
+        });
+        ds_row(ui, |ui| {
+            ds_label(ui, "Outer");
+            if ds_slider(ui, c, side.outer, 0.5..=1.0).changed() {
+                changed = true;
+            }
+            ds_value_pct(ui, *side.outer * 100.0);
+        });
+        ds_row(ui, |ui| {
+            ds_label(ui, "Curve");
+            if Self::curve_combo(ui, side.combo_id, side.curve) {
+                changed = true;
+            }
+        });
+        ds_row(ui, |ui| {
+            ds_label(ui, "Invert X");
+            if ds_toggle(ui, c, side.invert_x).changed() {
+                changed = true;
+            }
+        });
+        ds_row(ui, |ui| {
+            ds_label(ui, "Invert Y");
+            if ds_toggle(ui, c, side.invert_y).changed() {
+                changed = true;
+            }
+        });
+
+        ui.add_space(14.0);
+        ui.horizontal(|ui| {
+            ui.add_space(crate::ui::widgets::ROW_PAD_X);
+            Self::render_curve_visual(ui, side.curve, *side.deadzone, *side.outer, c);
+            ui.add_space(18.0);
+            Self::render_stick_visual(ui, *side.deadzone, *side.outer, side.raw, side.pressed, c);
+        });
+        ui.add_space(10.0);
+
+        changed
+    }
+
     pub(crate) fn render_sticks_section(&mut self, ui: &mut Ui) {
         let c = self.theme.colors.clone();
         let mut any_changed = false;
+
         let left_raw = self
             .input
             .controller_state
@@ -223,198 +286,87 @@ impl DS4UApp {
             .as_ref()
             .is_some_and(|s| s.buttons & crate::inputs::BTN_R3 != 0);
 
-        let total = ui.available_width();
-        let set_w = 620.0_f32.min(total * 0.45);
-        let cur_w = 480.0_f32.min((total - set_w) * 0.55);
-        let prv_w = (total - set_w - cur_w).max(280.0);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let total = ui.available_width();
+                let gutter = 16.0;
+                let col_w = ((total - gutter) * 0.5).max(160.0);
 
-        ui.horizontal_top(|ui| {
-            ui.allocate_ui_with_layout(
-                vec2(set_w, ui.available_height()),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ds_section(ui, &c, "Analog Sticks");
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
 
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "L Deadzone");
-                                if ds_slider(ui, &c, &mut self.sticks.left_deadzone, 0.0..=0.5)
-                                    .changed()
-                                {
-                                    any_changed = true;
-                                }
-                                ds_value_pct(ui, self.sticks.left_deadzone * 100.0);
-                            });
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "R Deadzone");
-                                if ds_slider(ui, &c, &mut self.sticks.right_deadzone, 0.0..=0.5)
-                                    .changed()
-                                {
-                                    any_changed = true;
-                                }
-                                ds_value_pct(ui, self.sticks.right_deadzone * 100.0);
-                            });
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "L Outer");
-                                if ds_slider(
+                    let left = ui
+                        .allocate_ui_with_layout(
+                            vec2(col_w, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                if Self::render_stick_panel(
                                     ui,
                                     &c,
-                                    &mut self.sticks.left_outer_deadzone,
-                                    0.5..=1.0,
-                                )
-                                .changed()
-                                {
-                                    any_changed = true;
-                                }
-                                ds_value_pct(ui, self.sticks.left_outer_deadzone * 100.0);
-                            });
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "R Outer");
-                                if ds_slider(
-                                    ui,
-                                    &c,
-                                    &mut self.sticks.right_outer_deadzone,
-                                    0.5..=1.0,
-                                )
-                                .changed()
-                                {
-                                    any_changed = true;
-                                }
-                                ds_value_pct(ui, self.sticks.right_outer_deadzone * 100.0);
-                            });
-
-                            ds_section(ui, &c, "Curves");
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "L Curve");
-                                if Self::curve_combo(ui, "left_curve", &mut self.sticks.left_curve)
-                                {
-                                    any_changed = true;
-                                }
-                            });
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "R Curve");
-                                if Self::curve_combo(
-                                    ui,
-                                    "right_curve",
-                                    &mut self.sticks.right_curve,
+                                    StickSide {
+                                        label: "Left Stick",
+                                        combo_id: "left_curve",
+                                        deadzone: &mut self.sticks.left_deadzone,
+                                        outer: &mut self.sticks.left_outer_deadzone,
+                                        curve: &mut self.sticks.left_curve,
+                                        invert_x: &mut self.sticks.left_invert_x,
+                                        invert_y: &mut self.sticks.left_invert_y,
+                                        raw: left_raw,
+                                        pressed: l3,
+                                    },
                                 ) {
                                     any_changed = true;
                                 }
-                            });
+                            },
+                        )
+                        .response
+                        .rect;
 
-                            ds_section(ui, &c, "Options");
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "Swap L / R");
-                                if ds_toggle(ui, &c, &mut self.sticks.swap).changed() {
-                                    any_changed = true;
-                                }
-                            });
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "Invert L X");
-                                if ds_toggle(ui, &c, &mut self.sticks.left_invert_x).changed() {
-                                    any_changed = true;
-                                }
-                            });
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "Invert L Y");
-                                if ds_toggle(ui, &c, &mut self.sticks.left_invert_y).changed() {
-                                    any_changed = true;
-                                }
-                            });
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "Invert R X");
-                                if ds_toggle(ui, &c, &mut self.sticks.right_invert_x).changed() {
-                                    any_changed = true;
-                                }
-                            });
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "Invert R Y");
-                                if ds_toggle(ui, &c, &mut self.sticks.right_invert_y).changed() {
-                                    any_changed = true;
-                                }
-                            });
-                        });
-                },
-            );
-            let (s, _) = ui.allocate_exact_size(vec2(1.0, ui.available_height()), Sense::hover());
-            ui.painter()
-                .rect_filled(s, 0.0, crate::ui::widgets::sep_color(&c));
+                    ui.add_space(gutter);
 
-            ui.allocate_ui_with_layout(
-                vec2(cur_w, ui.available_height()),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    ui.add_space(14.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(20.0);
-                        ui.label(
-                            RichText::new("Curves")
-                                .size(15.0)
-                                .strong()
-                                .color(c.accent())
-                                .extra_letter_spacing(2.0),
-                        );
-                    });
-                    ui.add_space(10.0);
-                    Self::render_curve_visual(
-                        ui,
-                        &self.sticks.left_curve,
-                        self.sticks.left_deadzone,
-                        self.sticks.left_outer_deadzone,
-                        &c,
+                    let right = ui
+                        .allocate_ui_with_layout(
+                            vec2(col_w, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                if Self::render_stick_panel(
+                                    ui,
+                                    &c,
+                                    StickSide {
+                                        label: "Right Stick",
+                                        combo_id: "right_curve",
+                                        deadzone: &mut self.sticks.right_deadzone,
+                                        outer: &mut self.sticks.right_outer_deadzone,
+                                        curve: &mut self.sticks.right_curve,
+                                        invert_x: &mut self.sticks.right_invert_x,
+                                        invert_y: &mut self.sticks.right_invert_y,
+                                        raw: right_raw,
+                                        pressed: r3,
+                                    },
+                                ) {
+                                    any_changed = true;
+                                }
+                            },
+                        )
+                        .response
+                        .rect;
+
+                    let sep_x = (left.max.x + right.min.x) * 0.5;
+                    let max_y = left.max.y.max(right.max.y);
+                    ui.painter().line_segment(
+                        [pos2(sep_x, left.min.y), pos2(sep_x, max_y)],
+                        egui::Stroke::new(1.0, crate::ui::widgets::sep_color(&c)),
                     );
-                    ui.add_space(10.0);
-                    Self::render_curve_visual(
-                        ui,
-                        &self.sticks.right_curve,
-                        self.sticks.right_deadzone,
-                        self.sticks.right_outer_deadzone,
-                        &c,
-                    );
-                },
-            );
-
-            let (s, _) = ui.allocate_exact_size(vec2(1.0, ui.available_height()), Sense::hover());
-            ui.painter()
-                .rect_filled(s, 0.0, crate::ui::widgets::sep_color(&c));
-
-            ui.allocate_ui_with_layout(
-                vec2(prv_w, ui.available_height()),
-                egui::Layout::top_down(egui::Align::Center),
-                |ui| {
-                    ui.add_space(14.0);
-                    ui.label(
-                        RichText::new("Preview")
-                            .size(15.0)
-                            .strong()
-                            .color(c.accent())
-                            .extra_letter_spacing(2.0),
-                    );
-                    ui.add_space(12.0);
-                    ui.horizontal(|ui| {
-                        Self::render_stick_visual(
-                            ui,
-                            self.sticks.left_deadzone,
-                            self.sticks.left_outer_deadzone,
-                            left_raw,
-                            l3,
-                            &c,
-                        );
-                        ui.add_space(20.0);
-                        Self::render_stick_visual(
-                            ui,
-                            self.sticks.right_deadzone,
-                            self.sticks.right_outer_deadzone,
-                            right_raw,
-                            r3,
-                            &c,
-                        );
-                    });
-                },
-            );
-        });
+                });
+                ds_section(ui, &c, "Options");
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Swap L / R");
+                    if ds_toggle(ui, &c, &mut self.sticks.swap).changed() {
+                        any_changed = true;
+                    }
+                });
+            });
 
         if any_changed {
             self.apply_input_transform();

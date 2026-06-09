@@ -1,4 +1,4 @@
-use crate::common::{HapticPattern, MicLedState, SpeakerMode};
+use crate::common::{HapticPattern, MicLedState, SpeakerMode, TouchpadMode};
 use crate::profiles::TriggerConfig;
 use crate::transform::GyroProcessor;
 
@@ -11,7 +11,7 @@ pub(crate) enum ProgressUpdate {
     LatestVersion(String),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 pub(crate) enum Section {
     Lightbar,
     Triggers,
@@ -67,8 +67,11 @@ pub(crate) struct GyroState {
 }
 
 pub(crate) struct TouchpadState {
-    pub(crate) enabled: bool,
     pub(crate) show_overlay: bool,
+    pub(crate) mode: TouchpadMode,
+    pub(crate) tap_to_click: bool,
+    pub(crate) natural_scrolling: bool,
+    pub(crate) sensitivity: f32,
 }
 
 pub(crate) struct HapticState {

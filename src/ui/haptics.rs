@@ -193,6 +193,21 @@ impl DS4UApp {
                     }
                     ds_value_pct(ui, ((7 - trg) as f32 / 7.0) * 100.0);
                 });
+                ds_section(ui, &c, "Test");
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Pulse");
+                    if ds_pill_button(ui, &c, "Left", false).clicked() {
+                        self.test_rumble(255, 0, 350);
+                    }
+                    ui.add_space(8.0);
+                    if ds_pill_button(ui, &c, "Right", false).clicked() {
+                        self.test_rumble(0, 255, 350);
+                    }
+                    ui.add_space(8.0);
+                    if ds_pill_button(ui, &c, "Both", false).clicked() {
+                        self.test_rumble(255, 255, 350);
+                    }
+                });
             });
 
         if pat_changed || params_changed {

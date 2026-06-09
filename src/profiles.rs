@@ -137,6 +137,10 @@ impl TriggerConfig {
     }
 }
 
+fn default_touchpad_sensitivity() -> f32 {
+    1.0
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Profile {
     pub name: String,
@@ -153,6 +157,14 @@ pub struct Profile {
     pub haptic_intensity: u8,
     pub gyro_sensetivity: f32,
     pub touchpad_enabled: bool,
+    #[serde(default)]
+    pub touchpad_mode: TouchpadMode,
+    #[serde(default)]
+    pub touchpad_tap_to_click: bool,
+    #[serde(default)]
+    pub touchpad_natural_scrolling: bool,
+    #[serde(default = "default_touchpad_sensitivity")]
+    pub touchpad_sensitivity: f32,
     pub button_remapping: HashMap<Button, Button>,
     pub disabled_buttons: HashSet<Button>,
     pub stick_left_deadzone: f32,
@@ -212,6 +224,7 @@ impl Profile {
             button_remap: self.button_remapping.clone(),
             disabled_buttons: self.disabled_buttons.clone(),
             touchpad_enabled: self.touchpad_enabled,
+            touchpad_mode: self.touchpad_mode,
         }
     }
 
@@ -372,6 +385,10 @@ impl Default for Profile {
             haptic_intensity: 0,
             gyro_sensetivity: 1.0,
             touchpad_enabled: true,
+            touchpad_mode: TouchpadMode::Mouse,
+            touchpad_tap_to_click: true,
+            touchpad_natural_scrolling: false,
+            touchpad_sensitivity: 1.0,
             button_remapping: HashMap::new(),
             disabled_buttons: HashSet::new(),
             stick_left_deadzone: 0.0,

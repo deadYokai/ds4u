@@ -210,27 +210,17 @@ impl DS4UApp {
     pub(crate) fn render_sidebar(&mut self, ui: &mut Ui) {
         self.render_title(ui);
 
+        let connected = self.is_connected();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                if self.is_connected() {
-                    for (sec, label) in NAV {
-                        let s = match sec {
-                            Section::Inputs => Section::Inputs,
-                            Section::Sticks => Section::Sticks,
-                            Section::Triggers => Section::Triggers,
-                            Section::Haptics => Section::Haptics,
-                            Section::Gyroscope => Section::Gyroscope,
-                            Section::Touchpad => Section::Touchpad,
-                            Section::Lightbar => Section::Lightbar,
-                            Section::Audio => Section::Audio,
-                            Section::Profiles => Section::Profiles,
-                            Section::Advanced => Section::Advanced,
-                            Section::Settings => Section::Settings,
-                        };
-                        self.render_nav_item(ui, label, s);
+                for (sec, label) in NAV {
+                    if !connected && *sec != Section::Settings {
+                        continue;
                     }
+                    self.render_nav_item(ui, label, *sec);
                 }
+
                 ui.add_space(32.0);
 
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {

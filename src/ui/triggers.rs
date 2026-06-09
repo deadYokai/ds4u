@@ -1,4 +1,4 @@
-use egui::{RichText, Ui};
+use egui::{RichText, Ui, vec2};
 
 use crate::app::DS4UApp;
 use crate::common::TriggerMode;
@@ -229,8 +229,50 @@ impl DS4UApp {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                left_changed = Self::render_trigger_panel(ui, &c, "L2 - Left Trigger", &mut l);
-                right_changed = Self::render_trigger_panel(ui, &c, "R2 - Right Trigger", &mut r);
+                let total = ui.available_width();
+                let gutter = 16.0;
+                let col_w = ((total - gutter) * 0.5).max(160.0);
+
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+
+                    let left = ui
+                        .allocate_ui_with_layout(
+                            vec2(col_w, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                left_changed =
+                                    Self::render_trigger_panel(ui, &c, "L2 — Left Trigger", &mut l);
+                            },
+                        )
+                        .response
+                        .rect;
+
+                    ui.add_space(gutter);
+
+                    let right = ui
+                        .allocate_ui_with_layout(
+                            vec2(col_w, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                right_changed = Self::render_trigger_panel(
+                                    ui,
+                                    &c,
+                                    "R2 — Right Trigger",
+                                    &mut r,
+                                );
+                            },
+                        )
+                        .response
+                        .rect;
+
+                    let sep_x = (left.max.x + right.min.x) * 0.5;
+                    let max_y = left.max.y.max(right.max.y);
+                    ui.painter().line_segment(
+                        [egui::pos2(sep_x, left.min.y), egui::pos2(sep_x, max_y)],
+                        egui::Stroke::new(1.0, crate::ui::widgets::sep_color(&c)),
+                    );
+                });
 
                 ds_section(ui, &c, "Actions");
                 ds_row(ui, |ui| {

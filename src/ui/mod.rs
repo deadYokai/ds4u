@@ -113,7 +113,10 @@ impl App for DS4UApp {
                     .map(|rx| rx.try_iter().collect())
                     .unwrap_or_default();
 
-                if let Some(state) = states.into_iter().last() {
+                if let Some(mut state) = states.into_iter().last() {
+                    if !self.using_daemon() {
+                        self.input_transform.apply(&mut state);
+                    }
                     self.input.controller_state = Some(state);
                 }
             } else if self.input.polling {
@@ -177,7 +180,7 @@ impl App for DS4UApp {
             .show(ctx, |ui| {
                 let bg = ui.available_rect_before_wrap();
                 crate::ui::widgets::paint_dotgrid(ui, bg);
-                if self.is_connected() {
+                if self.is_connected() || self.active_section == Section::Settings {
                     self.render_main(ui);
                 } else {
                     self.render_connection(ui);
