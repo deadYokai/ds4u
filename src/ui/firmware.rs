@@ -301,7 +301,7 @@ impl DS4UApp {
             if let (Some(cur), Some(latest)) = (self.firmware.current_version, &latest_str) {
                 u16::from_str_radix(latest.trim_start_matches("0x"), 16)
                     .ok()
-                    .map(|li| li >= cur)
+                    .map(|li| li > cur)
             } else {
                 None
             };

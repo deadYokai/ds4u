@@ -781,7 +781,7 @@ Please connect your controller via USB or Bluetooth."
     fn firmware_wait_status(&self, expected: u8) -> Result<()> {
         let start = Instant::now();
         loop {
-            if start.elapsed() > Duration::from_secs(30) {
+            if start.elapsed() > Duration::from_secs(120) {
                 bail!("Firmware update timeout");
             }
 
