@@ -149,6 +149,7 @@ pub enum DaemonCommand {
         name: String,
     },
     GetActiveProfile,
+    Shutdown,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -470,6 +471,14 @@ impl IpcClient {
             DaemonResponse::ActiveProfile { name } => Ok(name),
             DaemonResponse::Error { message } => bail!("{}", message),
             _ => bail!("Unexpected response"),
+        }
+    }
+
+    pub fn shutdown(&mut self) -> Result<()> {
+        match self.request(DaemonCommand::Shutdown)? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
         }
     }
 }

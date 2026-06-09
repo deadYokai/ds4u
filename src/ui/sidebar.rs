@@ -113,6 +113,7 @@ impl DS4UApp {
                     ui.add_space(26.0);
                 }
                 let connected = self.is_connected();
+                let via_daemon = self.using_daemon();
                 ui.label(
                     RichText::new(if connected {
                         "Connected"
@@ -125,6 +126,32 @@ impl DS4UApp {
                 let (dot, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
                 let col = if connected { c.success() } else { c.warning() };
                 ui.painter().circle_filled(dot.center(), 4.0, col);
+                if connected && !via_daemon {
+                    ui.add_space(8.0);
+                    let label = "DIRECT";
+                    let pad = vec2(8.0, 3.0);
+                    let galley = ui.painter().layout_no_wrap(
+                        label.into(),
+                        egui::FontId::proportional(11.0),
+                        c.warning(),
+                    );
+                    let size = galley.size() + pad * 2.0;
+                    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+                    let p = ui.painter();
+                    p.rect_stroke(
+                        rect,
+                        CornerRadius::same(2),
+                        Stroke::new(1.0, c.warning()),
+                        StrokeKind::Inside,
+                    );
+                    p.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        label,
+                        egui::FontId::proportional(11.0),
+                        c.warning(),
+                    );
+                }
             });
         });
     }

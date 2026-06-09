@@ -82,15 +82,54 @@ impl DS4UApp {
                     });
                 });
 
-                ds_section(ui, &c, "General");
+                ds_section(ui, &c, "Daemon");
+
+                let alive = self.daemon_alive();
+                let via = self.using_daemon();
+
                 ds_row(ui, |ui| {
-                    ds_label(ui, "TODO:");
-                    ui.label(
-                        RichText::new("Daemon settings")
-                            .size(18.0)
-                            .italics()
-                            .color(c.text_dim()),
-                    );
+                    ds_label(ui, "Status");
+                    let (txt, col) = if alive {
+                        ("Running", c.success())
+                    } else {
+                        ("Not running", c.error())
+                    };
+                    let (dot, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
+                    ui.painter().circle_filled(dot.center(), 4.0, col);
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(txt).size(18.0).color(col));
+                    ui.add_space(16.0);
+                    if alive {
+                        if ds_pill_button(ui, &c, "Stop", false).clicked() {
+                            self.stop_daemon_process();
+                        }
+                    } else if ds_pill_button(ui, &c, "Start", false).clicked() {
+                        self.start_daemon_process();
+                    }
+                    ui.add_space(6.0);
+                    if ds_pill_button(ui, &c, "Refresh", false).clicked() {
+                        self.refresh_daemon_state();
+                    }
+                });
+
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Connection");
+                    let (txt, col) = if via {
+                        ("Via daemon", c.accent())
+                    } else {
+                        ("Direct", c.warning())
+                    };
+                    ui.label(RichText::new(txt).size(18.0).strong().color(col));
+                    ui.add_space(16.0);
+                    if alive {
+                        if via {
+                            if ds_pill_button(ui, &c, "Use direct", false).clicked() {
+                                self.detach_daemon();
+                            }
+                        } else if ds_pill_button(ui, &c, "Use daemon", false).clicked() {
+                            self.attach_daemon();
+                        }
+                    }
                 });
             });
     }

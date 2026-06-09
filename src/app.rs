@@ -72,6 +72,9 @@ pub(crate) struct DS4UApp {
 
     pub(crate) lightbar_effect: LightbarEffect,
     pub(crate) local_gyro: GyroProcessor,
+
+    pub(crate) daemon_alive_cached: bool,
+    last_daemon_probe: Instant,
 }
 
 impl DS4UApp {
@@ -181,6 +184,9 @@ impl DS4UApp {
             lightbar_effect: LightbarEffect::None,
 
             local_gyro: GyroProcessor::default(),
+
+            daemon_alive_cached: false,
+            last_daemon_probe: Instant::now() - Duration::from_secs(10),
         };
 
         app.check_for_controller();
@@ -307,7 +313,7 @@ impl DS4UApp {
         }
     }
 
-    fn connect_via_daemon(&mut self, client: Arc<Mutex<IpcClient>>) {
+    pub(crate) fn connect_via_daemon(&mut self, client: Arc<Mutex<IpcClient>>) {
         let mut c = mlock(&client);
 
         if let Ok(Some((serial, pid, is_bt))) = c.get_controller_info() {
@@ -932,5 +938,115 @@ impl DS4UApp {
             self.load_profile(&default);
         }
         result
+    }
+
+    pub(crate) fn using_daemon(&self) -> bool {
+        self.ipc.is_some()
+    }
+
+    pub(crate) fn daemon_alive(&mut self) -> bool {
+        if self.last_daemon_probe.elapsed() >= Duration::from_millis(1500) {
+            self.last_daemon_probe = Instant::now();
+            let addr = crate::ipc::daemon_endpoint();
+            self.daemon_alive_cached = IpcClient::try_connect(&addr).is_some();
+        }
+        self.daemon_alive_cached
+    }
+
+    pub(crate) fn refresh_daemon_state(&mut self) {
+        self.last_daemon_probe = Instant::now() - Duration::from_secs(10);
+        let _ = self.daemon_alive();
+    }
+
+    pub(crate) fn start_daemon_process(&mut self) {
+        if self.daemon_alive() {
+            self.status_message = "Daemon already running".into();
+            return;
+        }
+        let exe = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(e) => {
+                self.error_message = format!("Cannot locate ds4u binary: {}", e);
+                return;
+            }
+        };
+        match std::process::Command::new(&exe)
+            .arg("--daemon")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(_) => {
+                self.status_message = "Daemon starting...".into();
+                self.error_message.clear();
+                std::thread::sleep(Duration::from_millis(250));
+                self.refresh_daemon_state();
+            }
+            Err(e) => {
+                self.error_message = format!("Failed to start daemon: {}", e);
+            }
+        }
+    }
+
+    pub(crate) fn stop_daemon_process(&mut self) {
+        let addr = crate::ipc::daemon_endpoint();
+        let mut client = match IpcClient::try_connect(&addr) {
+            Some(c) => c,
+            None => {
+                self.error_message = "Daemon is not running".into();
+                self.daemon_alive_cached = false;
+                return;
+            }
+        };
+        if self.ipc.is_some() {
+            self.stop_input_polling();
+            self.disconnect_controller();
+        }
+        match client.shutdown() {
+            Ok(_) => {
+                self.status_message = "Daemon stopped".into();
+                self.error_message.clear();
+            }
+            Err(e) => {
+                self.error_message = format!("Shutdown failed: {}", e);
+            }
+        }
+        self.daemon_alive_cached = false;
+        self.last_daemon_probe = Instant::now();
+    }
+
+    pub(crate) fn attach_daemon(&mut self) {
+        let addr = crate::ipc::daemon_endpoint();
+        let client = match IpcClient::try_connect(&addr) {
+            Some(c) => Arc::new(Mutex::new(c)),
+            None => {
+                self.error_message = "Daemon is not running".into();
+                return;
+            }
+        };
+        self.stop_input_polling();
+        self.controller = None;
+        self.battery_info = None;
+        self.controller_serial = None;
+        self.controller_is_bt = None;
+        self.controller_product_id = None;
+        let has_dev = matches!(mlock(&client).get_controller_info(), Ok(Some(_)));
+        if has_dev {
+            self.connect_via_daemon(client);
+        } else {
+            self.ipc = Some(client);
+            self.status_message = "Attached to daemon (waiting for device)".into();
+            self.error_message.clear();
+        }
+    }
+
+    pub(crate) fn detach_daemon(&mut self) {
+        if self.ipc.is_none() {
+            return;
+        }
+        self.stop_input_polling();
+        self.disconnect_controller();
+        self.status_message = "Detached from daemon".into();
     }
 }

@@ -342,6 +342,12 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                 send(&mut writer, DaemonResponse::Pong);
             }
 
+            DaemonCommand::Shutdown => {
+                send(&mut writer, DaemonResponse::Ok);
+                println!("{} shutdown requested via IPC", TAG);
+                std::process::exit(0);
+            }
+
             DaemonCommand::SetUpdateMode { active } => {
                 if active {
                     state.update_in_progress.store(true, Ordering::SeqCst);
@@ -807,18 +813,6 @@ fn dispatch(ds: &mut DualSense, cmd: DaemonCommand, transform: &InputTransform) 
 
         DaemonCommand::SetVolume { volume } => ok_or_err!(ds.set_volume(volume)),
 
-        DaemonCommand::SetTriggerEffects { .. }
-        | DaemonCommand::SetLightbarEffect { .. }
-        | DaemonCommand::SetHapticPattern { .. }
-        | DaemonCommand::SetGyro { .. }
-        | DaemonCommand::SetUpdateMode { .. }
-        | DaemonCommand::SetInputTransform { .. }
-        | DaemonCommand::ClearInputTransform
-        | DaemonCommand::SwitchProfile { .. }
-        | DaemonCommand::ReloadProfile
-        | DaemonCommand::ListProfiles
-        | DaemonCommand::SaveProfile { .. }
-        | DaemonCommand::DeleteProfile { .. }
-        | DaemonCommand::GetActiveProfile => unreachable!(),
+        _ => unreachable!(),
     }
 }
