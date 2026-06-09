@@ -1,8 +1,13 @@
 [package]
 name = "ds4u"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 description = "DualSense 4 You"
+authors = [ "deadYokai" ]
+readme = "README.md"
+repository = "https://git.yokai.digital/deadYokai/ds4u"
+license = "MIT"
+keywords = [ "dualsense", "controller" ]
 
 [dependencies]
 anyhow = "1.0.101"

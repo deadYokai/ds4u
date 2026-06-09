@@ -1,11 +1,11 @@
-use egui::{
-    Button, Color32, CornerRadius, Pos2, RichText, Sense, Slider, Stroke, StrokeKind, Ui, pos2,
-    vec2,
-};
+use egui::{Color32, CornerRadius, Pos2, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
 use crate::app::DS4UApp;
 use crate::common::HapticPattern;
 use crate::theme::ThemeColors;
+use crate::ui::widgets::{ds_pill_button, ds_slider};
+
+use super::widgets::{ds_label, ds_row, ds_section, ds_slider_int, ds_value_pct};
 
 const PATTERNS: &[(HapticPattern, &str)] = &[
     (HapticPattern::None, "Off"),
@@ -100,125 +100,105 @@ impl DS4UApp {
     }
 
     pub(crate) fn render_haptics_settings(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Haptics").size(28.0));
-        ui.add_space(10.0);
-
         let c = self.theme.colors.clone();
-        ui.label(
-            RichText::new("Vibration patterns and rumble attenuation")
-                .size(14.0)
-                .color(c.text_dim()),
-        );
+        let mut changed = false;
+        let mut pat_changed = false;
+        let mut params_changed = false;
 
-        ui.add_space(20.0);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if self.ipc.is_some() {
+                    ds_section(ui, &c, "Pattern");
+                    ds_row(ui, |ui| {
+                        ds_label(ui, "Effect");
+                        ui.horizontal_wrapped(|ui| {
+                            for (p, label) in PATTERNS {
+                                let active = self.haptic_state.pattern == *p;
+                                if ds_pill_button(ui, &c, label, active).clicked() && !active {
+                                    self.haptic_state.pattern = *p;
+                                    pat_changed = true;
+                                }
+                            }
+                        });
+                    });
 
-        if self.ipc.is_some() {
-            ui.label(RichText::new("Pattern").size(18.0).strong());
-            ui.add_space(8.0);
+                    if !matches!(self.haptic_state.pattern, HapticPattern::None) {
+                        let mut s = self.haptic_state.strength as i32;
+                        ds_row(ui, |ui| {
+                            ds_label(ui, "Strength");
+                            if ds_slider_int(ui, &c, &mut s, 0..=7).changed() {
+                                self.haptic_state.strength = s as u8;
+                                params_changed = true;
+                            }
+                            ds_value_pct(ui, (s as f32 / 7.0) * 100.0);
+                        });
 
-            ui.horizontal(|ui| {
-                for (p, label) in PATTERNS {
-                    let active = self.haptic_state.pattern == *p;
-                    let btn = Button::new(RichText::new(*label).size(13.0))
-                        .fill(if active {
-                            c.accent()
-                        } else {
-                            c.widget_inactive()
-                        })
-                        .min_size(vec2(86.0, 32.0));
-                    if ui.add(btn).clicked() && !active {
-                        self.haptic_state.pattern = *p;
-                        self.apply_haptic_pattern();
-                        self.sync_profile();
+                        if !matches!(self.haptic_state.pattern, HapticPattern::Constant) {
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "Speed");
+                                if ds_slider(ui, &c, &mut self.haptic_state.speed, 0.1..=10.0)
+                                    .changed()
+                                {
+                                    params_changed = true;
+                                }
+                                ds_value_pct(ui, (self.haptic_state.speed / 10.0) * 100.0);
+                            });
+                        }
                     }
+
+                    ds_section(ui, &c, "Live preview");
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(crate::ui::widgets::ROW_PAD_X);
+                        let time = ui.input(|i| i.time) as f32;
+                        Self::render_haptic_visual(
+                            ui,
+                            self.haptic_state.pattern,
+                            self.haptic_state.strength,
+                            self.haptic_state.speed,
+                            time,
+                            &c,
+                        );
+                    });
+                } else {
+                    ds_section(ui, &c, "Pattern");
+                    ds_row(ui, |ui| {
+                        ds_label(ui, "Daemon");
+                        ui.label(
+                            RichText::new("Required for patterns")
+                                .size(18.0)
+                                .italics()
+                                .color(c.text_dim()),
+                        );
+                    });
                 }
+
+                ds_section(ui, &c, "Vibration Attenuation");
+                let mut rum = self.vibration.rumble as i32;
+                let mut trg = self.vibration.trigger as i32;
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Rumble");
+                    if ds_slider_int(ui, &c, &mut rum, 0..=7).changed() {
+                        self.vibration.rumble = rum as u8;
+                        changed = true;
+                    }
+                    ds_value_pct(ui, ((7 - rum) as f32 / 7.0) * 100.0);
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Trigger");
+                    if ds_slider_int(ui, &c, &mut trg, 0..=7).changed() {
+                        self.vibration.trigger = trg as u8;
+                        changed = true;
+                    }
+                    ds_value_pct(ui, ((7 - trg) as f32 / 7.0) * 100.0);
+                });
             });
 
-            if !matches!(self.haptic_state.pattern, HapticPattern::None) {
-                ui.add_space(14.0);
-
-                let mut strength_f = self.haptic_state.strength as i32;
-                ui.label("Strength (0 = silent · 7 = full)");
-                if ui.add(Slider::new(&mut strength_f, 0..=7)).changed() {
-                    self.haptic_state.strength = strength_f as u8;
-                    self.apply_haptic_pattern();
-                    self.sync_profile();
-                }
-
-                if !matches!(self.haptic_state.pattern, HapticPattern::Constant) {
-                    ui.add_space(8.0);
-                    ui.label("Speed (Hz)");
-                    if ui
-                        .add(Slider::new(&mut self.haptic_state.speed, 0.1..=10.0))
-                        .changed()
-                    {
-                        self.apply_haptic_pattern();
-                        self.sync_profile();
-                    }
-                }
-            }
-
-            ui.add_space(18.0);
-            ui.label(RichText::new("Live preview").size(14.0).strong());
-            ui.add_space(6.0);
-            let time = ui.input(|i| i.time) as f32;
-            Self::render_haptic_visual(
-                ui,
-                self.haptic_state.pattern,
-                self.haptic_state.strength,
-                self.haptic_state.speed,
-                time,
-                &c,
-            );
-
-            ui.add_space(20.0);
-            ui.separator();
-            ui.add_space(20.0);
-        } else {
-            ui.label(
-                RichText::new("Haptic patterns require the daemon to be running.")
-                    .size(12.0)
-                    .color(c.text_dim()),
-            );
-            ui.add_space(20.0);
-            ui.separator();
-            ui.add_space(20.0);
+        if pat_changed || params_changed {
+            self.apply_haptic_pattern();
+            self.sync_profile();
         }
-
-        ui.label(RichText::new("Vibration Attenuation").size(18.0).strong());
-        ui.add_space(6.0);
-        ui.label(
-            RichText::new("0 = full strength · 7 = quietest")
-                .size(12.0)
-                .color(c.text_dim()),
-        );
-        ui.add_space(10.0);
-
-        let mut changed = false;
-        ui.horizontal(|ui| {
-            ui.label("Rumble motors:");
-            if ui
-                .add(Slider::new(&mut self.vibration.rumble, 0..=7).text(""))
-                .changed()
-            {
-                changed = true;
-            }
-            ui.label(format!("{}", self.vibration.rumble));
-        });
-
-        ui.add_space(10.0);
-
-        ui.horizontal(|ui| {
-            ui.label("Trigger vibration:");
-            if ui
-                .add(Slider::new(&mut self.vibration.trigger, 0..=7).text(""))
-                .changed()
-            {
-                changed = true;
-            }
-            ui.label(format!("{}", self.vibration.trigger));
-        });
-
         if changed {
             self.apply_vibration();
         }

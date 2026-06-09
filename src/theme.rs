@@ -79,18 +79,11 @@ pub struct Theme {
 }
 
 pub fn builtin_themes() -> Vec<Theme> {
-    vec![default(), deep_dark(), tokyo_night()]
+    vec![default(), author_theme(), deep_dark(), tokyo_night()]
 }
 
 pub fn default_theme() -> Theme {
     default()
-}
-
-pub fn theme_by_id(id: &str) -> Theme {
-    builtin_themes()
-        .into_iter()
-        .find(|t| t.id == id)
-        .unwrap_or_else(default_theme)
 }
 
 pub fn default() -> Theme {
@@ -110,6 +103,27 @@ pub fn default() -> Theme {
             success: [0, 200, 100],
             error: [255, 80, 80],
             warning: [255, 185, 0],
+        },
+    }
+}
+
+pub fn author_theme() -> Theme {
+    Theme {
+        id: "dy_author".into(),
+        dark_mode: true,
+        name: "Author theme".into(),
+        colors: ThemeColors {
+            window_bg: [19, 19, 19],
+            panel_bg: [11, 11, 11],
+            extreme_bg: [8, 8, 8],
+            accent: [255, 142, 0],
+            widget_hovered: [60, 37, 0],
+            widget_inactive: [38, 38, 38],
+            text: [255, 255, 255],
+            text_dim: [165, 165, 165],
+            success: [77, 255, 145],
+            error: [255, 90, 90],
+            warning: [255, 218, 172],
         },
     }
 }
@@ -196,13 +210,6 @@ impl ThemeManager {
             .into_iter()
             .find(|t| t.id == id)
             .unwrap_or_else(default_theme)
-    }
-
-    pub fn save_theme(&self, theme: &Theme) {
-        let _ = fs::create_dir_all(&self.dir);
-        if let Ok(json) = serde_json::to_string_pretty(theme) {
-            let _ = fs::write(self.theme_path(&theme.id), json);
-        }
     }
 
     pub fn list_all(&self) -> &[Theme] {

@@ -13,19 +13,18 @@ const SVG_VIEWPORT: f32 = 128.0;
 
 impl DS4UApp {
     pub(crate) fn render_inputs_section(&self, ui: &mut Ui) {
-        ui.heading(RichText::new("Controller Inputs").size(28.0));
-
-        ui.add_space(10.0);
-
         let c = &self.theme.colors;
-
-        ui.label(
-            RichText::new("Live visualisation")
-                .size(14.0)
-                .color(c.text_dim()),
-        );
-
-        ui.add_space(30.0);
+        ui.add_space(20.0);
+        ui.vertical_centered(|ui| {
+            ui.label(
+                RichText::new("LIVE VISUALISATION")
+                    .size(15.0)
+                    .strong()
+                    .color(c.accent())
+                    .extra_letter_spacing(2.0),
+            );
+        });
+        ui.add_space(20.0);
 
         let state = self.input.controller_state.as_ref();
         let buttons = state.map_or(0, |s| s.buttons);

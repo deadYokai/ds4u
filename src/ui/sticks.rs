@@ -1,8 +1,10 @@
-use egui::{Align2, Color32, Pos2, RichText, Sense, Slider, Stroke, Ui, pos2, vec2};
+use egui::{Align2, Color32, Pos2, RichText, Sense, Stroke, Ui, pos2, vec2};
 
 use crate::app::DS4UApp;
 use crate::common::SensitivityCurve;
 use crate::theme::ThemeColors;
+
+use super::widgets::{ds_label, ds_row, ds_section, ds_slider, ds_toggle, ds_value_pct};
 
 fn curve_value(curve: &SensitivityCurve, t: f32) -> f32 {
     match curve {
@@ -198,29 +200,7 @@ impl DS4UApp {
     }
 
     pub(crate) fn render_sticks_section(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Sticks").size(28.0));
-        ui.add_space(10.0);
-
         let c = self.theme.colors.clone();
-        ui.label(
-            RichText::new("Curves, deadzones, axis inversion and swap")
-                .size(14.0)
-                .color(c.text_dim()),
-        );
-
-        ui.add_space(20.0);
-
-        if ui
-            .checkbox(&mut self.sticks.swap, "Swap left and right sticks")
-            .changed()
-        {
-            self.apply_input_transform();
-            self.sync_profile();
-        }
-
-        ui.add_space(20.0);
-
-        let tc = self.theme.colors.clone();
         let mut any_changed = false;
         let left_raw = self
             .input
@@ -243,117 +223,189 @@ impl DS4UApp {
             .as_ref()
             .is_some_and(|s| s.buttons & crate::inputs::BTN_R3 != 0);
 
-        ui.columns(2, |cols| {
-            cols[0].label(RichText::new("Left Stick").size(16.0).strong());
-            cols[0].add_space(10.0);
+        let total = ui.available_width();
+        let set_w = 620.0_f32.min(total * 0.45);
+        let cur_w = 480.0_f32.min((total - set_w) * 0.55);
+        let prv_w = (total - set_w - cur_w).max(280.0);
 
-            if Self::curve_combo(&mut cols[0], "left_curve", &mut self.sticks.left_curve) {
-                any_changed = true;
-            }
+        ui.horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(
+                vec2(set_w, ui.available_height()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ds_section(ui, &c, "Analog Sticks");
 
-            Self::render_curve_visual(
-                &mut cols[0],
-                &self.sticks.left_curve,
-                self.sticks.left_deadzone,
-                self.sticks.left_outer_deadzone,
-                &tc,
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "L Deadzone");
+                                if ds_slider(ui, &c, &mut self.sticks.left_deadzone, 0.0..=0.5)
+                                    .changed()
+                                {
+                                    any_changed = true;
+                                }
+                                ds_value_pct(ui, self.sticks.left_deadzone * 100.0);
+                            });
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "R Deadzone");
+                                if ds_slider(ui, &c, &mut self.sticks.right_deadzone, 0.0..=0.5)
+                                    .changed()
+                                {
+                                    any_changed = true;
+                                }
+                                ds_value_pct(ui, self.sticks.right_deadzone * 100.0);
+                            });
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "L Outer");
+                                if ds_slider(
+                                    ui,
+                                    &c,
+                                    &mut self.sticks.left_outer_deadzone,
+                                    0.5..=1.0,
+                                )
+                                .changed()
+                                {
+                                    any_changed = true;
+                                }
+                                ds_value_pct(ui, self.sticks.left_outer_deadzone * 100.0);
+                            });
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "R Outer");
+                                if ds_slider(
+                                    ui,
+                                    &c,
+                                    &mut self.sticks.right_outer_deadzone,
+                                    0.5..=1.0,
+                                )
+                                .changed()
+                                {
+                                    any_changed = true;
+                                }
+                                ds_value_pct(ui, self.sticks.right_outer_deadzone * 100.0);
+                            });
+
+                            ds_section(ui, &c, "Curves");
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "L Curve");
+                                if Self::curve_combo(ui, "left_curve", &mut self.sticks.left_curve)
+                                {
+                                    any_changed = true;
+                                }
+                            });
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "R Curve");
+                                if Self::curve_combo(
+                                    ui,
+                                    "right_curve",
+                                    &mut self.sticks.right_curve,
+                                ) {
+                                    any_changed = true;
+                                }
+                            });
+
+                            ds_section(ui, &c, "Options");
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "Swap L / R");
+                                if ds_toggle(ui, &c, &mut self.sticks.swap).changed() {
+                                    any_changed = true;
+                                }
+                            });
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "Invert L X");
+                                if ds_toggle(ui, &c, &mut self.sticks.left_invert_x).changed() {
+                                    any_changed = true;
+                                }
+                            });
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "Invert L Y");
+                                if ds_toggle(ui, &c, &mut self.sticks.left_invert_y).changed() {
+                                    any_changed = true;
+                                }
+                            });
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "Invert R X");
+                                if ds_toggle(ui, &c, &mut self.sticks.right_invert_x).changed() {
+                                    any_changed = true;
+                                }
+                            });
+                            ds_row(ui, |ui| {
+                                ds_label(ui, "Invert R Y");
+                                if ds_toggle(ui, &c, &mut self.sticks.right_invert_y).changed() {
+                                    any_changed = true;
+                                }
+                            });
+                        });
+                },
+            );
+            let (s, _) = ui.allocate_exact_size(vec2(1.0, ui.available_height()), Sense::hover());
+            ui.painter()
+                .rect_filled(s, 0.0, crate::ui::widgets::sep_color(&c));
+
+            ui.allocate_ui_with_layout(
+                vec2(cur_w, ui.available_height()),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.add_space(14.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(20.0);
+                        ui.label(
+                            RichText::new("RESPONSE CURVE")
+                                .size(15.0)
+                                .strong()
+                                .color(c.accent())
+                                .extra_letter_spacing(2.0),
+                        );
+                    });
+                    ui.add_space(10.0);
+                    Self::render_curve_visual(
+                        ui,
+                        &self.sticks.left_curve,
+                        self.sticks.left_deadzone,
+                        self.sticks.left_outer_deadzone,
+                        &c,
+                    );
+                },
             );
 
-            cols[0].add_space(10.0);
-            cols[0].label("Inner deadzone");
-            if cols[0]
-                .add(Slider::new(&mut self.sticks.left_deadzone, 0.0..=0.5))
-                .changed()
-            {
-                any_changed = true;
-            }
-            cols[0].label("Outer deadzone");
-            if cols[0]
-                .add(Slider::new(&mut self.sticks.left_outer_deadzone, 0.5..=1.0))
-                .changed()
-            {
-                any_changed = true;
-            }
+            let (s, _) = ui.allocate_exact_size(vec2(1.0, ui.available_height()), Sense::hover());
+            ui.painter()
+                .rect_filled(s, 0.0, crate::ui::widgets::sep_color(&c));
 
-            Self::render_stick_visual(
-                &mut cols[0],
-                self.sticks.left_deadzone,
-                self.sticks.left_outer_deadzone,
-                left_raw,
-                l3,
-                &tc,
+            ui.allocate_ui_with_layout(
+                vec2(prv_w, ui.available_height()),
+                egui::Layout::top_down(egui::Align::Center),
+                |ui| {
+                    ui.add_space(14.0);
+                    ui.label(
+                        RichText::new("LIVE PREVIEW")
+                            .size(15.0)
+                            .strong()
+                            .color(c.accent())
+                            .extra_letter_spacing(2.0),
+                    );
+                    ui.add_space(12.0);
+                    ui.horizontal(|ui| {
+                        Self::render_stick_visual(
+                            ui,
+                            self.sticks.left_deadzone,
+                            self.sticks.left_outer_deadzone,
+                            left_raw,
+                            l3,
+                            &c,
+                        );
+                        ui.add_space(20.0);
+                        Self::render_stick_visual(
+                            ui,
+                            self.sticks.right_deadzone,
+                            self.sticks.right_outer_deadzone,
+                            right_raw,
+                            r3,
+                            &c,
+                        );
+                    });
+                },
             );
-
-            cols[0].add_space(10.0);
-            if cols[0]
-                .checkbox(&mut self.sticks.left_invert_x, "Invert X")
-                .changed()
-            {
-                any_changed = true;
-            }
-            if cols[0]
-                .checkbox(&mut self.sticks.left_invert_y, "Invert Y")
-                .changed()
-            {
-                any_changed = true;
-            }
-
-            cols[1].label(RichText::new("Right Stick").size(16.0).strong());
-            cols[1].add_space(10.0);
-
-            if Self::curve_combo(&mut cols[1], "right_curve", &mut self.sticks.right_curve) {
-                any_changed = true;
-            }
-
-            Self::render_curve_visual(
-                &mut cols[1],
-                &self.sticks.right_curve,
-                self.sticks.right_deadzone,
-                self.sticks.right_outer_deadzone,
-                &tc,
-            );
-
-            cols[1].add_space(10.0);
-            cols[1].label("Inner deadzone");
-            if cols[1]
-                .add(Slider::new(&mut self.sticks.right_deadzone, 0.0..=0.5))
-                .changed()
-            {
-                any_changed = true;
-            }
-            cols[1].label("Outer deadzone");
-            if cols[1]
-                .add(Slider::new(
-                    &mut self.sticks.right_outer_deadzone,
-                    0.5..=1.0,
-                ))
-                .changed()
-            {
-                any_changed = true;
-            }
-
-            Self::render_stick_visual(
-                &mut cols[1],
-                self.sticks.right_deadzone,
-                self.sticks.right_outer_deadzone,
-                right_raw,
-                r3,
-                &tc,
-            );
-
-            cols[1].add_space(10.0);
-            if cols[1]
-                .checkbox(&mut self.sticks.right_invert_x, "Invert X")
-                .changed()
-            {
-                any_changed = true;
-            }
-            if cols[1]
-                .checkbox(&mut self.sticks.right_invert_y, "Invert Y")
-                .changed()
-            {
-                any_changed = true;
-            }
         });
 
         if any_changed {

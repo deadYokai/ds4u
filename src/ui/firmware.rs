@@ -1,14 +1,13 @@
-use egui::{Button, CornerRadius, Frame, Margin, ProgressBar, RichText, Ui, vec2};
+use egui::{ProgressBar, RichText, Ui};
 
 use crate::app::DS4UApp;
 use crate::firmware::get_product_name;
+use crate::ui::widgets::{
+    ROW_PAD_X, ds_label, ds_pill_button, ds_row, ds_section, ds_value_text, ds_value_text_lr,
+};
 
 impl DS4UApp {
     fn render_firmware_panel(&mut self, ui: &mut Ui) {
-        ui.label(RichText::new("Firmware").size(18.0).strong());
-
-        ui.add_space(14.0);
-
         let connected = self.is_connected();
 
         let is_bt = self.controller_is_bt.unwrap_or(false);
@@ -54,138 +53,122 @@ impl DS4UApp {
             };
 
         let c = self.theme.colors.clone();
-        Frame::NONE
-            .fill(c.panel_bg())
-            .corner_radius(CornerRadius::same(8))
-            .inner_margin(Margin::same(14))
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
+        ds_section(ui, &c, "Controller");
+        ds_row(ui, |ui| {
+            ds_label(ui, "Model");
+            ds_value_text_lr(ui, model);
+        });
+        ds_row(ui, |ui| {
+            ds_label(ui, "Serial");
+            ds_value_text_lr(ui, &serial);
+        });
+        ds_row(ui, |ui| {
+            ds_label(ui, "Build Date");
+            ds_value_text_lr(ui, &build_date);
+        });
+        ds_row(ui, |ui| {
+            ds_label(ui, "Build Time");
+            ds_value_text_lr(ui, &build_time);
+        });
 
-                egui::Grid::new("fw_info_grid")
-                    .num_columns(2)
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label(RichText::new("Model").color(c.text_dim()).size(12.0));
-                        ui.label(RichText::new(model).size(12.0));
-                        ui.end_row();
-
-                        ui.label(RichText::new("Serial").color(c.text_dim()).size(12.0));
-                        ui.label(RichText::new(serial).size(12.0).monospace());
-                        ui.end_row();
-
-                        ui.label(RichText::new("Build Date").color(c.text_dim()).size(12.0));
-                        ui.label(RichText::new(build_date).size(12.0));
-                        ui.end_row();
-
-                        ui.label(RichText::new("Build Time").color(c.text_dim()).size(12.0));
-                        ui.label(RichText::new(build_time).size(12.0));
-                        ui.end_row();
-
-                        ui.label(RichText::new("Current").color(c.text_dim()).size(12.0));
-                        ui.label(RichText::new(cur_str).size(12.0));
-                        ui.end_row();
-
-                        ui.label(RichText::new("Latest").color(c.text_dim()).size(12.0));
-                        ui.horizontal(|ui| {
-                            if checking {
-                                ui.spinner();
-                                ui.label(RichText::new("Checking...").size(12.0));
-                            } else if let Some(ref ver) = latest_str {
-                                ui.label(RichText::new(ver).size(12.0));
-                            } else {
-                                ui.label(RichText::new("-").size(12.0));
-                                if connected && ui.small_button("Check").clicked() {
-                                    self.fetch_latest_verision_async();
-                                }
-                            }
-                        });
-                        ui.end_row();
-                    });
-
-                if connected {
-                    ui.add_space(10.0);
-                    if ui.small_button("↻ Re-read firmware info").clicked() {
-                        self.refresh_firmware_info();
-                    }
+        ds_section(ui, &c, "Firmware");
+        ds_row(ui, |ui| {
+            ds_label(ui, "Current");
+            ds_value_text_lr(ui, &cur_str);
+        });
+        ds_row(ui, |ui| {
+            ds_label(ui, "Latest");
+            if checking {
+                ui.spinner();
+                ui.label(RichText::new("Checking…").size(18.0).color(c.text_dim()));
+            } else if let Some(ver) = latest_str.as_ref() {
+                ds_value_text_lr(ui, ver);
+            } else if connected {
+                if ds_pill_button(ui, &c, "Check", false).clicked() {
+                    self.fetch_latest_verision_async();
                 }
-
-                if let Some(needs_update) = b {
-                    ui.add_space(10.0);
-                    if needs_update {
-                        ui.colored_label(c.warning(), "Update available");
-                    } else {
-                        ui.colored_label(c.success(), "Firmware is up to date");
-                    }
+            } else {
+                ds_value_text(ui, "-");
+            }
+        });
+        if connected {
+            ds_row(ui, |ui| {
+                ds_label(ui, "Refresh");
+                if ds_pill_button(ui, &c, "↻ Re-read info", false).clicked() {
+                    self.refresh_firmware_info();
                 }
             });
-
-        ui.add_space(16.0);
+        }
+        if let Some(needs_update) = b {
+            ds_row(ui, |ui| {
+                ds_label(ui, "Status");
+                let (txt, col) = if needs_update {
+                    ("Update available", c.warning())
+                } else {
+                    ("Up to date", c.success())
+                };
+                ui.label(RichText::new(txt).size(18.0).strong().color(col));
+            });
+        }
 
         if fw_updating {
-            ui.label(RichText::new(&fw_status).color(c.text_dim()).size(12.0));
-
-            ui.add_space(6.0);
-
-            ui.add(
-                ProgressBar::new(fw_progress as f32 / 100.0)
-                    .text(format!("{}%", fw_progress))
-                    .animate(true),
-            );
-        } else if let Some(needs_update) = b
-            && needs_update
-        {
-            ui.colored_label(c.warning(), "USB connection required for flashing");
-
-            ui.add_space(10.0);
-
-            let mut ota_clicked = false;
-            let mut file_clicked = false;
-
+            ds_section(ui, &c, "Flashing");
+            ui.add_space(8.0);
             ui.horizontal(|ui| {
-                let ota_btn = Button::new("Download & Update").min_size(vec2(200.0, 32.0));
-
-                if ui.add_enabled(connected && !is_bt, ota_btn).clicked() {
-                    ota_clicked = true;
-                }
-
+                ui.add_space(ROW_PAD_X);
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(&fw_status).color(c.text_dim()).size(14.0));
+                    ui.add_space(8.0);
+                    ui.add(
+                        ProgressBar::new(fw_progress as f32 / 100.0)
+                            .text(format!("{}%", fw_progress))
+                            .animate(true),
+                    );
+                });
+            });
+        } else if let Some(true) = b {
+            ds_section(ui, &c, "Update");
+            ds_row(ui, |ui| {
+                ds_label(ui, "Action");
+                let can_flash = connected && !is_bt;
+                let ota = ds_pill_button(ui, &c, "Download & Update", false);
                 ui.add_space(8.0);
-
-                let file_btn = Button::new("Update from File...").min_size(vec2(160.0, 32.0));
-
-                if ui.add_enabled(connected && !is_bt, file_btn).clicked() {
-                    file_clicked = true;
+                let file = ds_pill_button(ui, &c, "Update from File…", false);
+                if can_flash && ota.clicked() {
+                    self.flash_latest();
+                }
+                if can_flash && file.clicked() {
+                    self.flash_file();
                 }
             });
-
-            ui.colored_label(
-                c.warning(),
-                "WARNING: Do not disconnect controller during update.
-Ensure battery is above 10%.
-Update can take several minutes.
-Controller will disconnect when complete.",
-            );
-
-            if ota_clicked {
-                self.flash_latest();
-            }
-            if file_clicked {
-                self.flash_file();
-            }
-
-            if connected && is_bt {
-                ui.add_space(6.0);
-                ui.colored_label(
-                    c.error(),
-                    "Disconnect Bluetooth and connect via USB to flash",
+            ds_row(ui, |ui| {
+                ds_label(ui, "Notice");
+                ui.label(
+                    RichText::new(
+                        "Do not disconnect during update // battery ≥ 10% // takes several minutes",
+                    )
+                    .size(15.0)
+                    .color(c.warning()),
                 );
+            });
+            if connected && is_bt {
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Bluetooth");
+                    ui.label(
+                        RichText::new("Switch to USB to flash")
+                            .size(18.0)
+                            .color(c.error()),
+                    );
+                });
             }
         }
     }
 
     pub(crate) fn render_advanced(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Advanced Settings").size(28.0));
-        ui.add_space(30.0);
-
-        self.render_firmware_panel(ui);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                self.render_firmware_panel(ui);
+            });
     }
 }

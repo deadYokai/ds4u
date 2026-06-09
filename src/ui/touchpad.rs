@@ -3,6 +3,7 @@ use egui::{Color32, CornerRadius, RichText, Sense, Stroke, Ui, pos2, vec2};
 use crate::app::DS4UApp;
 use crate::inputs::{BTN_TOUCHPAD, TOUCHPAD_MAX_X, TOUCHPAD_MAX_Y};
 use crate::theme::ThemeColors;
+use crate::ui::widgets::{ROW_PAD_X, ds_label, ds_row, ds_section, ds_toggle};
 
 impl DS4UApp {
     fn render_touchpad_visual(ui: &mut Ui, app: &DS4UApp, c: &ThemeColors) {
@@ -60,66 +61,61 @@ impl DS4UApp {
         }
     }
     pub(crate) fn render_touchpad_section(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Touchpad").size(28.0));
-        ui.add_space(10.0);
-
         let c = self.theme.colors.clone();
-        ui.label(
-            RichText::new("Touchpad behaviour and live preview")
-                .size(14.0)
-                .color(c.text_dim()),
-        );
-
-        ui.add_space(20.0);
-
         let mut changed = false;
 
-        if ui
-            .checkbox(&mut self.touchpad.enabled, "Enable touchpad input")
-            .on_hover_text("When disabled, touch points are stripped from the IPC input stream.")
-            .changed()
-        {
-            changed = true;
-        }
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ds_section(ui, &c, "Touchpad");
 
-        ui.add_space(6.0);
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Input");
+                    if ds_toggle(ui, &c, &mut self.touchpad.enabled).changed() {
+                        changed = true;
+                    }
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Show overlay");
+                    if ds_toggle(ui, &c, &mut self.touchpad.show_overlay).changed() {
+                        self.sync_profile();
+                    }
+                });
 
-        if ui
-            .checkbox(
-                &mut self.touchpad.show_overlay,
-                "Show overlay on Inputs page",
-            )
-            .changed()
-        {
-            self.sync_profile();
-        }
+                ds_section(ui, &c, "Live preview");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(ROW_PAD_X);
+                    if self.input.controller_state.is_some() {
+                        Self::render_touchpad_visual(ui, self, &c);
+                    } else {
+                        ui.label(
+                            RichText::new("Waiting for input…")
+                                .size(18.0)
+                                .color(c.warning()),
+                        );
+                    }
+                });
 
-        ui.add_space(20.0);
-        ui.label(RichText::new("Live preview").size(14.0).strong());
-        ui.add_space(6.0);
-
-        if let Some(s) = &self.input.controller_state {
-            Self::render_touchpad_visual(ui, self, &c);
-            ui.add_space(10.0);
-            let mut line = format!("active: {}", s.touch_count);
-            for (i, pt) in s.touch_points.iter().enumerate() {
-                if pt.active {
-                    line.push_str(&format!("  #{}={}:({},{})", i, pt.id, pt.x, pt.y));
+                if let Some(s) = &self.input.controller_state {
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(ROW_PAD_X);
+                        let mut line = format!("active: {}", s.touch_count);
+                        for (i, pt) in s.touch_points.iter().enumerate() {
+                            if pt.active {
+                                line.push_str(&format!("  #{}={}:({},{})", i, pt.id, pt.x, pt.y));
+                            }
+                        }
+                        ui.label(
+                            RichText::new(line)
+                                .size(13.0)
+                                .color(c.text_dim())
+                                .monospace(),
+                        );
+                    });
                 }
-            }
-            ui.label(
-                RichText::new(line)
-                    .size(11.0)
-                    .color(c.text_dim())
-                    .monospace(),
-            );
-        } else {
-            ui.label(
-                RichText::new("Waiting for input from controller...")
-                    .size(12.0)
-                    .color(c.warning()),
-            );
-        }
+            });
 
         if changed {
             self.apply_input_transform();

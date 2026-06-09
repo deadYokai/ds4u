@@ -1,5 +1,8 @@
 use eframe::App;
-use egui::{CentralPanel, Color32, Image, RichText, SidePanel, Ui, include_image};
+use egui::{
+    CentralPanel, Color32, Image, Margin, RichText, SidePanel, TopBottomPanel, Ui,
+    containers::Frame, include_image,
+};
 use std::time::Duration;
 
 use crate::app::DS4UApp;
@@ -19,27 +22,22 @@ pub mod sidebar;
 pub mod sticks;
 pub mod touchpad;
 pub mod triggers;
+pub mod widgets;
 
 impl DS4UApp {
     fn render_main(&mut self, ui: &mut Ui) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(30.0);
-
-            match self.active_section {
-                Section::Lightbar => self.render_lightbar_section(ui),
-                Section::Triggers => self.render_triggers_section(ui),
-                Section::Sticks => self.render_sticks_section(ui),
-                Section::Haptics => self.render_haptics_settings(ui),
-                Section::Audio => self.render_audio_settings(ui),
-                Section::Advanced => self.render_advanced(ui),
-                Section::Inputs => self.render_inputs_section(ui),
-                Section::Settings => self.render_settings_section(ui),
-                Section::Gyroscope => self.render_gyroscope_section(ui),
-                Section::Touchpad => self.render_touchpad_section(ui),
-                Section::Profiles => self.render_profiles_section(ui),
-            }
-
-            ui.add_space(30.0);
+        egui::ScrollArea::vertical().show(ui, |ui| match self.active_section {
+            Section::Lightbar => self.render_lightbar_section(ui),
+            Section::Triggers => self.render_triggers_section(ui),
+            Section::Sticks => self.render_sticks_section(ui),
+            Section::Haptics => self.render_haptics_settings(ui),
+            Section::Audio => self.render_audio_settings(ui),
+            Section::Advanced => self.render_advanced(ui),
+            Section::Inputs => self.render_inputs_section(ui),
+            Section::Settings => self.render_settings_section(ui),
+            Section::Gyroscope => self.render_gyroscope_section(ui),
+            Section::Touchpad => self.render_touchpad_section(ui),
+            Section::Profiles => self.render_profiles_section(ui),
         });
     }
 
@@ -140,20 +138,51 @@ impl App for DS4UApp {
 
         apply_style(ctx, &self.theme);
 
-        SidePanel::left("sidebar")
-            .exact_width(280.0)
-            .resizable(false)
-            .show(ctx, |ui| {
-                self.render_sidebar(ui);
-            });
+        let c = self.theme.colors.clone();
+        TopBottomPanel::top("statusbar")
+            .exact_height(40.0)
+            .frame(
+                Frame::NONE
+                    .fill(c.window_bg())
+                    .inner_margin(Margin {
+                        left: 32,
+                        right: 32,
+                        top: 0,
+                        bottom: 0,
+                    })
+                    .stroke(egui::Stroke::new(1.0, crate::ui::widgets::sep_color(&c))),
+            )
+            .show(ctx, |ui| self.render_statusbar(ui));
 
-        CentralPanel::default().show(ctx, |ui| {
-            if self.is_connected() {
-                self.render_main(ui);
-            } else {
-                self.render_connection(ui);
-            }
-        });
+        SidePanel::left("ds_sidebar")
+            .exact_width(200.0)
+            .resizable(false)
+            .frame(Frame::NONE.fill(c.panel_bg()))
+            .show(ctx, |ui| self.render_sidebar(ui));
+
+        if self.is_connected() {
+            TopBottomPanel::top("header")
+                .exact_height(58.0)
+                .frame(
+                    Frame::NONE
+                        .fill(c.window_bg())
+                        .inner_margin(Margin::symmetric(28, 0))
+                        .stroke(egui::Stroke::new(1.0, crate::ui::widgets::sep_color(&c))),
+                )
+                .show(ctx, |ui| self.render_header(ui));
+        }
+
+        CentralPanel::default()
+            .frame(Frame::NONE.fill(c.window_bg()))
+            .show(ctx, |ui| {
+                let bg = ui.available_rect_before_wrap();
+                crate::ui::widgets::paint_dotgrid(ui, bg);
+                if self.is_connected() {
+                    self.render_main(ui);
+                } else {
+                    self.render_connection(ui);
+                }
+            });
 
         if self.firmware.updating {
             ctx.request_repaint();

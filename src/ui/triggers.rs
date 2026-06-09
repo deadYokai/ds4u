@@ -1,8 +1,11 @@
-use egui::{ComboBox, RichText, Slider, Ui};
+use egui::{RichText, Ui};
 
 use crate::app::DS4UApp;
 use crate::common::TriggerMode;
 use crate::profiles::TriggerConfig;
+use crate::ui::widgets::{ds_label, ds_row, ds_slider_int, ds_value_text};
+
+use super::widgets::{ds_pill_button, ds_section};
 
 const ALL_MODES: &[TriggerMode] = &[
     TriggerMode::Off,
@@ -29,206 +32,223 @@ fn mode_label(m: &TriggerMode) -> &'static str {
 impl DS4UApp {
     fn render_trigger_panel(
         ui: &mut Ui,
+        c: &crate::theme::ThemeColors,
         label: &str,
-        side_id: &str,
         cfg: &mut TriggerConfig,
     ) -> bool {
         let mut changed = false;
 
-        ui.label(RichText::new(label).size(16.0).strong());
-        ui.add_space(8.0);
+        ds_section(ui, c, label);
 
-        ComboBox::from_id_salt(format!("{}_mode", side_id))
-            .selected_text(mode_label(&cfg.mode))
-            .width(ui.available_width())
-            .show_ui(ui, |ui| {
+        ds_row(ui, |ui| {
+            ds_label(ui, "Mode");
+            ui.horizontal_wrapped(|ui| {
                 for m in ALL_MODES {
-                    if ui
-                        .selectable_value(&mut cfg.mode, m.clone(), mode_label(m))
-                        .changed()
-                    {
+                    let active = std::mem::discriminant(&cfg.mode) == std::mem::discriminant(m);
+                    if ds_pill_button(ui, c, mode_label(m), active).clicked() && !active {
+                        cfg.mode = m.clone();
                         changed = true;
                     }
                 }
             });
-
-        ui.add_space(10.0);
+        });
 
         match cfg.mode {
             TriggerMode::Off => {
-                ui.label(RichText::new("Trigger effect disabled.").italics());
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Status");
+                    ui.label(
+                        RichText::new("Effect disabled")
+                            .size(18.0)
+                            .italics()
+                            .color(c.text_dim()),
+                    );
+                });
             }
             TriggerMode::Feedback => {
-                ui.label("Start position (0–9)");
-                if ui.add(Slider::new(&mut cfg.start, 0..=9)).changed() {
-                    changed = true;
-                }
-                ui.label("End position (0–9)");
-                if ui.add(Slider::new(&mut cfg.end, 0..=9)).changed() {
-                    changed = true;
-                }
-                ui.label("Strength (1–8)");
-                if ui.add(Slider::new(&mut cfg.strength, 1..=8)).changed() {
-                    changed = true;
-                }
+                let mut s = cfg.start as i32;
+                let mut e = cfg.end as i32;
+                let mut g = cfg.strength as i32;
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Start");
+                    if ds_slider_int(ui, c, &mut s, 0..=9).changed() {
+                        cfg.start = s as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &s.to_string());
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "End");
+                    if ds_slider_int(ui, c, &mut e, 0..=9).changed() {
+                        cfg.end = e as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &e.to_string());
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Strength");
+                    if ds_slider_int(ui, c, &mut g, 1..=8).changed() {
+                        cfg.strength = g as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &g.to_string());
+                });
             }
             TriggerMode::Weapon => {
-                ui.label("Pre-pull resistance start (2–7)");
-                if ui.add(Slider::new(&mut cfg.start, 2..=7)).changed() {
-                    changed = true;
-                }
-                ui.label("Break point (start+1..=8)");
-                if ui
-                    .add(Slider::new(&mut cfg.end, (cfg.start + 1)..=8))
-                    .changed()
-                {
-                    changed = true;
-                }
-                ui.label("Strength (1–8)");
-                if ui.add(Slider::new(&mut cfg.strength, 1..=8)).changed() {
-                    changed = true;
-                }
+                let lo = cfg.start as i32 + 1;
+                let mut s = cfg.start as i32;
+                let mut e = cfg.end as i32;
+                let mut g = cfg.strength as i32;
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Pre-pull");
+                    if ds_slider_int(ui, c, &mut s, 2..=7).changed() {
+                        cfg.start = s as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &s.to_string());
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Break");
+                    if ds_slider_int(ui, c, &mut e, lo..=8).changed() {
+                        cfg.end = e as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &e.to_string());
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Strength");
+                    if ds_slider_int(ui, c, &mut g, 1..=8).changed() {
+                        cfg.strength = g as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &g.to_string());
+                });
             }
             TriggerMode::Bow => {
-                ui.label("Start position (0–8)");
-                if ui.add(Slider::new(&mut cfg.start, 0..=8)).changed() {
-                    changed = true;
-                }
-                ui.label("Snap position (start+1..=8)");
-                if ui
-                    .add(Slider::new(&mut cfg.end, (cfg.start + 1)..=8))
-                    .changed()
-                {
-                    changed = true;
-                }
-                ui.label("Force / snap strength (1–8)");
-                if ui.add(Slider::new(&mut cfg.strength, 1..=8)).changed() {
-                    changed = true;
-                }
+                let lo = cfg.start as i32 + 1;
+                let mut s = cfg.start as i32;
+                let mut e = cfg.end as i32;
+                let mut g = cfg.strength as i32;
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Start");
+                    if ds_slider_int(ui, c, &mut s, 0..=8).changed() {
+                        cfg.start = s as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &s.to_string());
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Snap");
+                    if ds_slider_int(ui, c, &mut e, lo..=8).changed() {
+                        cfg.end = e as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &e.to_string());
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Force");
+                    if ds_slider_int(ui, c, &mut g, 1..=8).changed() {
+                        cfg.strength = g as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &g.to_string());
+                });
             }
-            TriggerMode::Galloping => {
-                ui.label("Start position (0–8)");
-                if ui.add(Slider::new(&mut cfg.start, 0..=8)).changed() {
-                    changed = true;
-                }
-                ui.label("End position (start+1..=9)");
-                if ui
-                    .add(Slider::new(&mut cfg.end, (cfg.start + 1)..=9))
-                    .changed()
-                {
-                    changed = true;
-                }
-                ui.label("Foot offset (1–8)");
-                if ui.add(Slider::new(&mut cfg.strength, 1..=8)).changed() {
-                    changed = true;
-                }
-                ui.label("Frequency (Hz)");
-                if ui.add(Slider::new(&mut cfg.frequency, 1..=255)).changed() {
-                    changed = true;
-                }
-            }
-            TriggerMode::Vibration => {
-                ui.label("Start position (0–9)");
-                if ui.add(Slider::new(&mut cfg.start, 0..=9)).changed() {
-                    changed = true;
-                }
-                ui.label("End position");
-                if ui.add(Slider::new(&mut cfg.end, cfg.start..=9)).changed() {
-                    changed = true;
-                }
-                ui.label("Amplitude (1–8)");
-                if ui.add(Slider::new(&mut cfg.strength, 1..=8)).changed() {
-                    changed = true;
-                }
-                ui.label("Frequency (Hz)");
-                if ui.add(Slider::new(&mut cfg.frequency, 1..=255)).changed() {
-                    changed = true;
-                }
-            }
-            TriggerMode::Machine => {
-                ui.label("Start position (0–8)");
-                if ui.add(Slider::new(&mut cfg.start, 0..=8)).changed() {
-                    changed = true;
-                }
-                ui.label("End position (start+1..=9)");
-                if ui
-                    .add(Slider::new(&mut cfg.end, (cfg.start + 1)..=9))
-                    .changed()
-                {
-                    changed = true;
-                }
-                ui.label("Amplitude (1–8)");
-                if ui.add(Slider::new(&mut cfg.strength, 1..=8)).changed() {
-                    changed = true;
-                }
-                ui.label("Frequency (Hz)");
-                if ui.add(Slider::new(&mut cfg.frequency, 1..=255)).changed() {
-                    changed = true;
-                }
+            TriggerMode::Galloping | TriggerMode::Vibration | TriggerMode::Machine => {
+                let lo = cfg.start as i32 + 1;
+                let mut s = cfg.start as i32;
+                let mut e = cfg.end as i32;
+                let mut g = cfg.strength as i32;
+                let mut f = cfg.frequency as i32;
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Start");
+                    if ds_slider_int(ui, c, &mut s, 0..=8).changed() {
+                        cfg.start = s as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &s.to_string());
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "End");
+                    if ds_slider_int(ui, c, &mut e, lo..=9).changed() {
+                        cfg.end = e as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &e.to_string());
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Amplitude");
+                    if ds_slider_int(ui, c, &mut g, 1..=8).changed() {
+                        cfg.strength = g as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &g.to_string());
+                });
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Frequency");
+                    if ds_slider_int(ui, c, &mut f, 1..=255).changed() {
+                        cfg.frequency = f as u8;
+                        changed = true;
+                    }
+                    ds_value_text(ui, &format!("{} Hz", f));
+                });
             }
         }
 
-        ui.add_space(14.0);
-        ui.label(RichText::new("Deadband").size(14.0).strong());
-        ui.label("Release (raw 0–255)");
-        if ui
-            .add(Slider::new(&mut cfg.deadband.release, 0..=254))
-            .changed()
-        {
-            changed = true;
-        }
-        ui.label("Full stroke (raw 0–255)");
-        if ui
-            .add(Slider::new(
-                &mut cfg.deadband.full_stroke,
-                (cfg.deadband.release + 1)..=255,
-            ))
-            .changed()
-        {
-            changed = true;
-        }
+        ds_section(ui, c, "Deadband");
+        let lo = cfg.deadband.release as i32 + 1;
+        let mut rel = cfg.deadband.release as i32;
+        let mut full = cfg.deadband.full_stroke as i32;
+        ds_row(ui, |ui| {
+            ds_label(ui, "Release");
+            if ds_slider_int(ui, c, &mut rel, 0..=254).changed() {
+                cfg.deadband.release = rel as u8;
+                changed = true;
+            }
+            ds_value_text(ui, &rel.to_string());
+        });
+        ds_row(ui, |ui| {
+            ds_label(ui, "Full");
+            if ds_slider_int(ui, c, &mut full, lo..=255).changed() {
+                cfg.deadband.full_stroke = full as u8;
+                changed = true;
+            }
+            ds_value_text(ui, &full.to_string());
+        });
 
         changed
     }
 
     pub(crate) fn render_triggers_section(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Adaptive Triggers").size(28.0));
-        ui.add_space(10.0);
-
         let c = self.theme.colors.clone();
-        ui.label(
-            RichText::new("Configure trigger resistance and feedback")
-                .size(14.0)
-                .color(c.text_dim()),
-        );
-
-        ui.add_space(20.0);
-
         let mut left_changed = false;
         let mut right_changed = false;
 
         let (mut l, mut r) = (self.triggers.left.clone(), self.triggers.right.clone());
 
-        ui.columns(2, |cols| {
-            left_changed =
-                Self::render_trigger_panel(&mut cols[0], "L2 (Left Trigger)", "left", &mut l);
-            right_changed =
-                Self::render_trigger_panel(&mut cols[1], "R2 (Right Trigger)", "right", &mut r);
-        });
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                left_changed = Self::render_trigger_panel(ui, &c, "L2 - Left Trigger", &mut l);
+                right_changed = Self::render_trigger_panel(ui, &c, "R2 - Right Trigger", &mut r);
+
+                ds_section(ui, &c, "Actions");
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Reset");
+                    if ds_pill_button(ui, &c, "Both triggers to Off", false).clicked() {
+                        self.triggers.left = TriggerConfig::default();
+                        self.triggers.right = TriggerConfig::default();
+                        self.apply_triggers();
+                        self.apply_input_transform();
+                        self.sync_profile();
+                    }
+                });
+            });
 
         self.triggers.left = l;
         self.triggers.right = r;
 
         if left_changed || right_changed {
-            self.apply_triggers();
-            self.apply_input_transform();
-            self.sync_profile();
-        }
-
-        ui.add_space(20.0);
-        if ui.button("Reset both triggers to Off").clicked() {
-            self.triggers.left = TriggerConfig::default();
-            self.triggers.right = TriggerConfig::default();
             self.apply_triggers();
             self.apply_input_transform();
             self.sync_profile();

@@ -1,108 +1,97 @@
-use egui::{Color32, Frame, RichText, Stroke, Ui, vec2};
+use egui::{Color32, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 
 use crate::app::DS4UApp;
+use crate::ui::widgets::{ROW_PAD_X, ds_label, ds_pill_button, ds_row, ds_section};
 
 impl DS4UApp {
     pub(crate) fn render_settings_section(&mut self, ui: &mut Ui) {
-        ui.heading(RichText::new("Settings").size(28.0));
-        ui.add_space(10.0);
-
-        ui.label(
-            RichText::new("Application preferences")
-                .size(14.0)
-                .color(self.theme.colors.text_dim()),
-        );
-
-        ui.add_space(30.0);
-
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Theme").size(18.0).strong());
-            ui.add_space(6.0);
-            if ui
-                .button(RichText::new("Refresh").size(16.0))
-                .on_hover_text("Refresh themes")
-                .clicked()
-            {
-                self.theme_manager.reload();
-            }
-        });
-        ui.add_space(12.0);
-
-        let themes = self.theme_manager.list_all();
-
-        egui::Grid::new("theme_grid")
-            .num_columns(3)
-            .spacing(vec2(12.0, 12.0))
+        let c = self.theme.colors.clone();
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
             .show(ui, |ui| {
-                for (i, t) in themes.iter().enumerate() {
-                    let selected = t.id == self.theme.id;
-                    let c = &t.colors;
+                ds_section(ui, &c, "Theme");
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Active");
+                    ui.label(
+                        RichText::new(&self.theme.name)
+                            .size(20.0)
+                            .strong()
+                            .color(c.accent()),
+                    );
+                    ui.add_space(12.0);
+                    if ds_pill_button(ui, &c, "Refresh", false).clicked() {
+                        self.theme_manager.reload();
+                    }
+                });
 
-                    let frame_color = if selected {
-                        self.theme.colors.accent()
-                    } else {
-                        Color32::TRANSPARENT
-                    };
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(ROW_PAD_X);
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                        ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
+                        let themes = self.theme_manager.list_all().to_vec();
+                        for t in themes {
+                            let selected = t.id == self.theme.id;
+                            let tc = t.colors.clone();
 
-                    let response = Frame::NONE
-                        .fill(Color32::from_rgb(
-                            c.panel_bg[0],
-                            c.panel_bg[1],
-                            c.panel_bg[2],
-                        ))
-                        .stroke(Stroke::new(if selected { 2.0 } else { 1.0 }, frame_color))
-                        .corner_radius(8)
-                        .inner_margin(10)
-                        .show(ui, |ui| {
-                            ui.set_min_width(180.0);
-
-                            ui.horizontal(|ui| {
-                                for col in [c.accent, c.success, c.error] {
-                                    let (rect, _) = ui.allocate_exact_size(
-                                        vec2(16.0, 16.0),
-                                        egui::Sense::hover(),
-                                    );
-
-                                    ui.painter().rect_filled(
-                                        rect,
-                                        4.0,
-                                        Color32::from_rgb(col[0], col[1], col[2]),
-                                    );
-                                }
-                            });
-
-                            ui.add_space(6.0);
-
-                            ui.label(
-                                RichText::new(&t.name)
-                                    .size(13.0)
-                                    .color(Color32::from_rgb(c.text[0], c.text[1], c.text[2])),
+                            let (rect, resp) =
+                                ui.allocate_exact_size(vec2(180.0, 90.0), Sense::click());
+                            let p = ui.painter();
+                            p.rect_filled(
+                                rect,
+                                4.0,
+                                Color32::from_rgb(tc.panel_bg[0], tc.panel_bg[1], tc.panel_bg[2]),
                             );
-                        })
-                        .response;
+                            let stroke_col = if selected {
+                                c.accent()
+                            } else if resp.hovered() {
+                                crate::ui::widgets::accent_alpha(&c, 180)
+                            } else {
+                                crate::ui::widgets::sep_color(&c)
+                            };
+                            p.rect_stroke(
+                                rect,
+                                4.0,
+                                Stroke::new(if selected { 2.0 } else { 1.0 }, stroke_col),
+                                StrokeKind::Inside,
+                            );
+                            for (i, col) in [tc.accent, tc.success, tc.error].iter().enumerate() {
+                                let s = egui::Rect::from_min_size(
+                                    egui::pos2(
+                                        rect.min.x + 12.0 + i as f32 * 22.0,
+                                        rect.min.y + 12.0,
+                                    ),
+                                    vec2(18.0, 18.0),
+                                );
+                                p.rect_filled(s, 3.0, Color32::from_rgb(col[0], col[1], col[2]));
+                            }
+                            p.text(
+                                egui::pos2(rect.min.x + 12.0, rect.max.y - 14.0),
+                                egui::Align2::LEFT_BOTTOM,
+                                &t.name,
+                                egui::FontId::proportional(16.0),
+                                Color32::from_rgb(tc.text[0], tc.text[1], tc.text[2]),
+                            );
 
-                    if response.interact(egui::Sense::click()).clicked() && !selected {
-                        self.settings.theme_id = t.id.clone();
-                        self.theme = t.clone();
-                        self.settings_manager.save(&self.settings);
-                    }
+                            if resp.clicked() && !selected {
+                                self.settings.theme_id = t.id.clone();
+                                self.theme = t.clone();
+                                self.settings_manager.save(&self.settings);
+                            }
+                        }
+                    });
+                });
 
-                    if (i + 1) % 3 == 0 {
-                        ui.end_row();
-                    }
-                }
+                ds_section(ui, &c, "General");
+                ds_row(ui, |ui| {
+                    ds_label(ui, "TODO:");
+                    ui.label(
+                        RichText::new("Daemon settings")
+                            .size(18.0)
+                            .italics()
+                            .color(c.text_dim()),
+                    );
+                });
             });
-
-        ui.add_space(30.0);
-        ui.separator();
-        ui.add_space(30.0);
-
-        ui.label(RichText::new("General").size(18.0).strong());
-        ui.add_space(10.0);
-        ui.label(
-            RichText::new("Nothing here yet...")
-                .size(14.0)
-                .color(self.theme.colors.text_dim()),
-        );
     }
 }

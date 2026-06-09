@@ -46,6 +46,7 @@ const DS_OUTPUT_VALID_FLAG1_AUDIO_CONTROL2_ENABLE: u8 = 1 << 7;
 
 const DS_OUTPUT_VALID_FLAG2_LED_BRIGHTNESS_CONTROL_ENABLE: u8 = 1 << 0;
 const DS_OUTPUT_VALID_FLAG2_LIGHTBAR_SETUP_CONTROL_ENABLE: u8 = 1 << 1;
+const DS_OUTPUT_FLAG2_ENABLE_IMPROVED_RUMBLE_EMULATION: u8 = 1 << 2;
 
 const DS_OUTPUT_POWER_SAVE_CONTROL_AUDIO: u8 = 1 << 3;
 const DS_OUTPUT_POWER_SAVE_CONTROL_MIC_MUTE: u8 = 1 << 4;
@@ -70,6 +71,18 @@ const DS_TRIGGER_EFFECT_GALLOPING: u8 = 0x23;
 const DS_TRIGGER_EFFECT_WEAPON: u8 = 0x25;
 const DS_TRIGGER_EFFECT_VIBRATION: u8 = 0x26;
 const DS_TRIGGER_EFFECT_MACHINE: u8 = 0x27;
+
+const DS_OUTPUT_REPORT_BT_HAPTICS: u8 = 0x32;
+const DS_OUTPUT_REPORT_BT_HAPTICS_SIZE: usize = 142;
+
+const DS_HAPTICS_SUB_PACKET_SIZED: u8 = 1 << 7;
+const DS_HAPTICS_SUB_PACKET_0X11: u8 = 0x11 | DS_HAPTICS_SUB_PACKET_SIZED;
+const DS_HAPTICS_SUB_PACKET_0X12: u8 = 0x12 | DS_HAPTICS_SUB_PACKET_SIZED;
+const DS_HAPTICS_SUB_PACKET_0X11_LEN: u8 = 7;
+const DS_HAPTICS_SUB_PACKET_0X12_LEN: u8 = 64;
+pub const HAPTICS_SAMPLE_RATE: u32 = 3000;
+pub const HAPTICS_PACKET_FRAMES: usize = 32;
+pub const HAPTICS_PACKET_SAMPLES: usize = HAPTICS_PACKET_FRAMES * 2;
 
 const DS_FEATURE_REPORT_FIRMWARE_INFO: u8 = 0x20;
 
@@ -102,6 +115,8 @@ pub struct DualSense {
     device: HidDevice,
     is_bt: bool,
     output_seq: u8,
+    haptics_output_seq: u8,
+    haptics_packet_counter: u8,
     product_id: u16,
     serial: String,
     update_mode: Arc<AtomicBool>,
@@ -150,6 +165,8 @@ Please connect your controller via USB or Bluetooth."
             device,
             is_bt,
             output_seq: 0,
+            haptics_output_seq: 0,
+            haptics_packet_counter: 0,
             product_id,
             serial,
             update_mode: Arc::new(AtomicBool::new(false)),
@@ -479,7 +496,7 @@ Please connect your controller via USB or Bluetooth."
         let offset = if self.is_bt { 3 } else { 1 };
 
         buf[offset + 1] = DS_OUTPUT_VALID_FLAG1_VIBRATION_ATTENUATION_ENABLE;
-        buf[offset + 36] = (rumble & 0x07) | ((trigger & 0x07) << 4);
+        buf[offset + 36] = (trigger & 0x07) | ((rumble & 0x07) << 4);
 
         self.send_output_report(&mut buf)
     }
@@ -491,6 +508,34 @@ Please connect your controller via USB or Bluetooth."
         buf[offset] |= DS_OUTPUT_VALID_FLAG0_COMPATIBLE_VIBRATION;
         buf[offset + 2] = right;
         buf[offset + 3] = left;
+        buf[offset + 38] |= DS_OUTPUT_FLAG2_ENABLE_IMPROVED_RUMBLE_EMULATION;
+
+        self.send_output_report(&mut buf)
+    }
+
+    pub fn set_haptics(&mut self, samples: &[i8; HAPTICS_PACKET_SAMPLES]) -> Result<()> {
+        if !self.is_bt {
+            bail!("Haptics output requires a Bluetooth connection");
+        }
+
+        let mut buf = vec![0u8; DS_OUTPUT_REPORT_BT_HAPTICS_SIZE];
+
+        buf[0] = DS_OUTPUT_REPORT_BT_HAPTICS;
+        buf[1] = self.haptics_output_seq << 4;
+        self.haptics_output_seq = (self.haptics_output_seq + 1) & 0x0f;
+
+        buf[2] = DS_HAPTICS_SUB_PACKET_0X11;
+        buf[3] = DS_HAPTICS_SUB_PACKET_0X11_LEN;
+        buf[4] = 0xfe;
+        buf[9] = 0xff;
+        buf[10] = self.haptics_packet_counter;
+        self.haptics_packet_counter = self.haptics_packet_counter.wrapping_add(1);
+
+        buf[11] = DS_HAPTICS_SUB_PACKET_0X12;
+        buf[12] = DS_HAPTICS_SUB_PACKET_0X12_LEN;
+        for (i, &s) in samples.iter().enumerate() {
+            buf[13 + i] = s as u8;
+        }
 
         self.send_output_report(&mut buf)
     }
