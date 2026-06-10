@@ -146,7 +146,11 @@ impl DS4UApp {
                 });
                 ds_row(ui, |ui| {
                     ds_label(ui, "Reason");
-                    ui.label(RichText::new(&err).size(15.0).color(c.error()));
+                    let mut err = &err;
+                    if err.is_empty() {
+                        err = &self.error_message;
+                    }
+                    ui.label(RichText::new(err).size(15.0).color(c.error()));
                 });
                 ds_row(ui, |ui| {
                     ds_label(ui, "");
@@ -161,7 +165,12 @@ impl DS4UApp {
                     let can_retry = connected && !is_bt;
                     if can_retry && ds_pill_button(ui, c, "Retry", false).clicked() {
                         self.firmware.last_flash_result = None;
-                        self.flash_latest();
+                        if self.firmware.is_last_flash_file {
+                            self.flash_file();
+                        } else {
+                            self.flash_latest();
+                        }
+                        self.firmware.is_last_flash_file = false;
                     }
                     ui.add_space(8.0);
                     if ds_pill_button(ui, c, "Dismiss", false).clicked() {
@@ -223,17 +232,26 @@ impl DS4UApp {
         });
     }
 
-    fn render_update_panel(&mut self, ui: &mut Ui, c: &ThemeColors, connected: bool, is_bt: bool) {
+    fn render_update_panel(
+        &mut self,
+        ui: &mut Ui,
+        c: &ThemeColors,
+        connected: bool,
+        is_bt: bool,
+        needs_update: Option<bool>,
+    ) {
         ds_section(ui, c, "Update");
         ds_row(ui, |ui| {
             ds_label(ui, "Action");
             let can_flash = connected && !is_bt;
-            let ota = ds_pill_button(ui, c, "Download & Update", false);
-            ui.add_space(8.0);
-            let file = ds_pill_button(ui, c, "Update from File…", false);
-            if can_flash && ota.clicked() {
-                self.flash_latest();
+            if let Some(true) = needs_update {
+                let ota = ds_pill_button(ui, c, "Download & Update", false);
+                if can_flash && ota.clicked() {
+                    self.flash_latest();
+                }
+                ui.add_space(8.0);
             }
+            let file = ds_pill_button(ui, c, "Update from File…", false);
             if can_flash && file.clicked() {
                 self.flash_file();
             }
@@ -371,8 +389,8 @@ impl DS4UApp {
             self.render_flashing_panel(ui, &c, &fw_status, fw_progress);
         } else if let Some(result) = last_result {
             self.render_result_panel(ui, &c, result, connected, is_bt);
-        } else if let Some(true) = needs_update {
-            self.render_update_panel(ui, &c, connected, is_bt);
+        } else {
+            self.render_update_panel(ui, &c, connected, is_bt, needs_update);
         }
     }
 

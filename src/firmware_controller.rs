@@ -24,6 +24,7 @@ pub(crate) struct FirmwareController {
     pub(crate) build_date: Option<String>,
     pub(crate) build_time: Option<String>,
     pub(crate) last_flash_result: Option<Result<(), String>>,
+    pub(crate) is_last_flash_file: bool,
 }
 
 impl FirmwareController {
@@ -46,6 +47,7 @@ impl FirmwareController {
             build_date: None,
             build_time: None,
             last_flash_result: None,
+            is_last_flash_file: false,
         }
     }
 

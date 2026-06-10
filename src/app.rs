@@ -861,6 +861,7 @@ impl DS4UApp {
             return;
         };
 
+        self.firmware.is_last_flash_file = true;
         let fw_data = match std::fs::read(&path) {
             Ok(d) => d,
             Err(e) => {
@@ -884,17 +885,19 @@ impl DS4UApp {
         self.firmware.last_flash_result = None;
         self.firmware.status = "Flasing from file...".to_string();
 
-        thread::spawn(move || {
+        let handle = thread::spawn(move || {
             {
-                let c = ctrl.lock().unwrap();
+                let c = mlock(&ctrl);
                 c.set_update_mode(true);
             }
 
-            let mut ctrl = ctrl.lock().unwrap();
-            let tx_progress = tx.clone();
+            let mut ctrl = mlock(&ctrl);
 
+            ctrl.set_update_mode(false);
+
+            let tx_flash = tx.clone();
             let result = ctrl.update_firmware(&fw_data, move |p| {
-                let _ = tx_progress.send(ProgressUpdate::Progress(p));
+                let _ = tx_flash.send(ProgressUpdate::Progress(50 + p / 2));
             });
 
             ctrl.set_update_mode(false);
@@ -908,6 +911,7 @@ impl DS4UApp {
                 }
             }
         });
+        self.firmware.thread = Some(handle);
     }
 
     pub(crate) fn apply_input_transform(&mut self) {
