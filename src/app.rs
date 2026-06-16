@@ -75,6 +75,9 @@ pub(crate) struct DS4UApp {
 
     pub(crate) daemon_alive_cached: bool,
     last_daemon_probe: Instant,
+    haptic_stream: crate::haptics_stream::HapticStream,
+    usb_haptic_stream: crate::usb_haptics::UsbHapticStream,
+    daemon_raw_active: bool,
 }
 
 impl DS4UApp {
@@ -190,6 +193,9 @@ impl DS4UApp {
 
             daemon_alive_cached: false,
             last_daemon_probe: Instant::now() - Duration::from_secs(10),
+            haptic_stream: crate::haptics_stream::HapticStream::new(),
+            usb_haptic_stream: crate::usb_haptics::UsbHapticStream::new(),
+            daemon_raw_active: false,
         };
 
         app.check_for_controller();
@@ -446,6 +452,71 @@ impl DS4UApp {
         }
     }
 
+    pub(crate) fn haptic_stream_active(&self) -> bool {
+        self.haptic_stream.is_active()
+            || self.usb_haptic_stream.is_active()
+            || self.daemon_raw_active
+    }
+
+    pub(crate) fn start_raw_haptics(&mut self) {
+        let pattern = self.haptic_state.pattern;
+        let strength = self.haptic_state.strength;
+        let speed = self.haptic_state.speed;
+        self.error_message.clear();
+        match self.controller_is_bt {
+            Some(true) => {
+                if let Some(ctrl) = self.controller.clone() {
+                    self.stop_input_polling();
+                    self.haptic_stream.start(ctrl, pattern, strength, speed);
+                    self.status_message = "Streaming raw haptics (Bluetooth)".to_string();
+                } else if let Some(ipc) = self.ipc.clone() {
+                    match mlock(&ipc).set_raw_haptics(true) {
+                        Ok(()) => {
+                            self.daemon_raw_active = true;
+                            self.status_message =
+                                "Streaming raw haptics (Bluetooth via daemon)".to_string();
+                        }
+                        Err(e) => self.error_message = format!("Daemon haptics failed: {e}"),
+                    }
+                } else {
+                    self.error_message = "No controller connected".to_string();
+                }
+            }
+            Some(false) => {
+                let Some(card) = crate::usb_haptics::find_dualsense_card() else {
+                    self.error_message =
+                        "Couldn't find the controller's USB audio device".to_string();
+                    return;
+                };
+                let _ = self.usb_haptic_stream.start(card, pattern, strength, speed);
+                self.status_message = "Streaming raw haptics (USB)".to_string();
+            }
+            None => {
+                self.error_message = "No controller connected".to_string();
+            }
+        }
+    }
+
+    pub(crate) fn stop_raw_haptics(&mut self) {
+        self.haptic_stream.stop();
+        self.usb_haptic_stream.stop();
+        if self.daemon_raw_active {
+            if let Some(ipc) = self.ipc.clone() {
+                let _ = mlock(&ipc).set_raw_haptics(false);
+            }
+            self.daemon_raw_active = false;
+        }
+        self.status_message = "Raw haptics stopped".to_string();
+    }
+
+    pub(crate) fn update_raw_haptics(&mut self) {
+        let p = self.haptic_state.pattern;
+        let s = self.haptic_state.strength;
+        let sp = self.haptic_state.speed;
+        self.haptic_stream.set_params(p, s, sp);
+        self.usb_haptic_stream.set_params(p, s, sp);
+    }
+
     fn acquire_direct_fw(&mut self) -> bool {
         if self.controller.is_some() {
             return true;
@@ -533,24 +604,24 @@ impl DS4UApp {
         let ctrl = self.controller.clone();
         let ipc = self.ipc.clone();
         std::thread::spawn(move || {
-            if let Some(ctrl) = &ctrl {
-                if let Ok(mut c) = ctrl.lock() {
-                    let _ = c.set_rumble(amp_l, amp_r);
-                }
-            } else if let Some(ipc) = &ipc {
-                if let Ok(mut c) = ipc.lock() {
-                    let _ = c.set_rumble(amp_l, amp_r);
-                }
+            if let Some(ctrl) = &ctrl
+                && let Ok(mut c) = ctrl.lock()
+            {
+                let _ = c.set_rumble(amp_l, amp_r);
+            } else if let Some(ipc) = &ipc
+                && let Ok(mut c) = ipc.lock()
+            {
+                let _ = c.set_rumble(amp_l, amp_r);
             }
             std::thread::sleep(std::time::Duration::from_millis(duration_ms));
-            if let Some(ctrl) = &ctrl {
-                if let Ok(mut c) = ctrl.lock() {
-                    let _ = c.set_rumble(0, 0);
-                }
-            } else if let Some(ipc) = &ipc {
-                if let Ok(mut c) = ipc.lock() {
-                    let _ = c.set_rumble(0, 0);
-                }
+            if let Some(ctrl) = &ctrl
+                && let Ok(mut c) = ctrl.lock()
+            {
+                let _ = c.set_rumble(0, 0);
+            } else if let Some(ipc) = &ipc
+                && let Ok(mut c) = ipc.lock()
+            {
+                let _ = c.set_rumble(0, 0);
             }
         });
     }
@@ -622,7 +693,7 @@ impl DS4UApp {
         self.apply_haptic_pattern();
 
         if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc.lock().unwrap().switch_profile(&profile.name);
+            let _ = mlock(ipc).switch_profile(&profile.name);
         }
     }
 
@@ -666,7 +737,7 @@ impl DS4UApp {
         profile.haptic_speed = self.haptic_state.speed;
 
         if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc.lock().unwrap().save_profile(profile.clone());
+            let _ = mlock(ipc).save_profile(profile.clone());
         } else {
             let _ = self.profile_manager.save_profile(profile);
         }
@@ -678,7 +749,7 @@ impl DS4UApp {
         }
 
         if let Some(ref ipc) = self.ipc.clone() {
-            let still_present = matches!(ipc.lock().unwrap().get_controller_info(), Ok(Some(_)));
+            let still_present = matches!(mlock(ipc).get_controller_info(), Ok(Some(_)));
             if !still_present {
                 self.stop_input_polling();
                 self.disconnect_controller();
@@ -713,7 +784,7 @@ impl DS4UApp {
             && self.ipc.is_none()
             && let Some(client) = self.daemon_manager.connect_new_client()
         {
-            let available = matches!(client.lock().unwrap().get_controller_info(), Ok(Some(_)));
+            let available = matches!(mlock(&client).get_controller_info(), Ok(Some(_)));
             if available {
                 self.connect_via_daemon(client);
             }
@@ -769,9 +840,9 @@ impl DS4UApp {
 
     pub(crate) fn refresh_firmware_info(&mut self) {
         let result = if let Some(ref ipc) = self.ipc.clone() {
-            ipc.lock().unwrap().get_firmware_info()
+            mlock(ipc).get_firmware_info()
         } else if let Some(ref ctrl) = self.controller {
-            ctrl.lock().unwrap().get_firmware_info()
+            mlock(ctrl).get_firmware_info()
         } else {
             self.error_message = "No controller available".into();
             return;
@@ -955,8 +1026,10 @@ impl DS4UApp {
             return false;
         }
 
-        let mut p = Profile::default();
-        p.name = name.to_string();
+        let mut p = Profile {
+            name: name.to_string(),
+            ..Default::default()
+        };
         if let Some(cur) = &self.current_profile {
             let mut clone = cur.clone();
             clone.name = name.to_string();
@@ -966,7 +1039,7 @@ impl DS4UApp {
             return false;
         }
         if let Some(ref ipc) = self.ipc.clone() {
-            let _ = ipc.lock().unwrap().save_profile(p.clone());
+            let _ = mlock(ipc).save_profile(p.clone());
         }
         self.load_profile(&p);
         true
@@ -977,7 +1050,7 @@ impl DS4UApp {
             return false;
         }
         let result = if let Some(ref ipc) = self.ipc.clone() {
-            ipc.lock().unwrap().delete_profile(name).is_ok()
+            mlock(ipc).delete_profile(name).is_ok()
         } else {
             self.profile_manager.delete_profile(name).is_ok()
         };

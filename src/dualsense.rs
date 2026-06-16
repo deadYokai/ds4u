@@ -27,23 +27,29 @@ const DS_OUTPUT_REPORT_BT_SIZE: usize = 78;
 const DS_OUTPUT_TAG: u8 = 0x10;
 
 const DS_OUTPUT_VALID_FLAG0_COMPATIBLE_VIBRATION: u8 = 1 << 0;
+#[allow(dead_code)]
 const DS_OUTPUT_VALID_FLAG0_HAPTICS_SELECT: u8 = 1 << 1;
 const DS_OUTPUT_VALID_FLAG0_RIGHT_TRIGGER_MOTOR_ENABLE: u8 = 1 << 2;
 const DS_OUTPUT_VALID_FLAG0_LEFT_TRIGGER_MOTOR_ENABLE: u8 = 1 << 3;
 const DS_OUTPUT_VALID_FLAG0_HEADPHONE_VOLUME_ENABLE: u8 = 1 << 4;
 const DS_OUTPUT_VALID_FLAG0_SPEAKER_VOLUME_ENABLE: u8 = 1 << 5;
+#[allow(dead_code)]
 const DS_OUTPUT_VALID_FLAG0_MICROPHONE_VOLUME_ENABLE: u8 = 1 << 6;
 const DS_OUTPUT_VALID_FLAG0_AUDIO_CONTROL_ENABLE: u8 = 1 << 7;
 
 const DS_OUTPUT_VALID_FLAG1_MIC_MUTE_LED_CONTROL_ENABLE: u8 = 1 << 0;
 const DS_OUTPUT_VALID_FLAG1_POWER_SAVE_CONTROL_ENABLE: u8 = 1 << 1;
 const DS_OUTPUT_VALID_FLAG1_LIGHTBAR_CONTROL_ENABLE: u8 = 1 << 2;
+#[allow(dead_code)]
 const DS_OUTPUT_VALID_FLAG1_RELEASE_LEDS: u8 = 1 << 3;
 const DS_OUTPUT_VALID_FLAG1_PLAYER_INDICATOR_CONTROL_ENABLE: u8 = 1 << 4;
+#[allow(dead_code)]
 const DS_OUTPUT_VALID_FLAG1_HAPTIC_LOW_PASS_FILTER: u8 = 1 << 5;
 const DS_OUTPUT_VALID_FLAG1_VIBRATION_ATTENUATION_ENABLE: u8 = 1 << 6;
+#[allow(dead_code)]
 const DS_OUTPUT_VALID_FLAG1_AUDIO_CONTROL2_ENABLE: u8 = 1 << 7;
 
+#[allow(dead_code)]
 const DS_OUTPUT_VALID_FLAG2_LED_BRIGHTNESS_CONTROL_ENABLE: u8 = 1 << 0;
 const DS_OUTPUT_VALID_FLAG2_LIGHTBAR_SETUP_CONTROL_ENABLE: u8 = 1 << 1;
 const DS_OUTPUT_FLAG2_ENABLE_IMPROVED_RUMBLE_EMULATION: u8 = 1 << 2;
@@ -63,14 +69,6 @@ const DS_STATUS_CHARGING_SHIFT: u8 = 4;
 const DS_FEATURE_REPORT_FW: u8 = 0xf4;
 const DS_FEATURE_REPORT_FW_STATUS: u8 = 0xf5;
 const DS_BATTERY_THRESHOLD: u8 = 10;
-
-const DS_TRIGGER_EFFECT_OFF: u8 = 0x05;
-const DS_TRIGGER_EFFECT_FEEDBACK: u8 = 0x21;
-const DS_TRIGGER_EFFECT_BOW: u8 = 0x22;
-const DS_TRIGGER_EFFECT_GALLOPING: u8 = 0x23;
-const DS_TRIGGER_EFFECT_WEAPON: u8 = 0x25;
-const DS_TRIGGER_EFFECT_VIBRATION: u8 = 0x26;
-const DS_TRIGGER_EFFECT_MACHINE: u8 = 0x27;
 
 const DS_OUTPUT_REPORT_BT_HAPTICS: u8 = 0x32;
 const DS_OUTPUT_REPORT_BT_HAPTICS_SIZE: usize = 142;
@@ -195,7 +193,7 @@ Please connect your controller via USB or Bluetooth."
         }
 
         let mut buf = vec![0u8; DS_INPUT_REPORT_BT_SIZE];
-        let size = self.device.read_timeout(&mut buf, 1000)?;
+        let size = self.device.read_timeout(&mut buf, 200)?;
 
         if size == 0 {
             bail!("Timeout reading input state");

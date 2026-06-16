@@ -366,7 +366,7 @@ fn paint_gradient_line_at(p: &egui::Painter, rect: Rect, color: Color32, peak_al
 pub fn ds_gradient_line(ui: &mut Ui) {
     let base = text_of(ui);
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 2.0), Sense::hover());
-    paint_gradient_line_at(&ui.painter(), rect, base, 76);
+    paint_gradient_line_at(ui.painter(), rect, base, 76);
 }
 
 pub fn paint_dotgrid(ui: &Ui, rect: Rect) {

@@ -3,7 +3,7 @@ use egui::{
     CentralPanel, Color32, Image, Margin, RichText, SidePanel, TopBottomPanel, Ui,
     containers::Frame, include_image,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::app::DS4UApp;
 use crate::inputs::ControllerState;
@@ -127,7 +127,11 @@ impl App for DS4UApp {
                 ctx.request_repaint();
             }
 
-            self.check_controller_connection();
+            if self.last_connection_check.elapsed() > Duration::from_secs(1) {
+                self.last_connection_check = Instant::now();
+                self.check_controller_connection();
+            }
+
             if self.last_battery_update.elapsed() > Duration::from_secs(2) {
                 self.update_battery();
             }

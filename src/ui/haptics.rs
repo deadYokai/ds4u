@@ -85,9 +85,7 @@ impl DS4UApp {
             let y = bottom - val * plot_h;
             points.push(pos2(x, y));
         }
-        for win in points.windows(2) {
-            painter.line_segment([win[0], win[1]], Stroke::new(2.0, c.accent()));
-        }
+        painter.add(egui::Shape::line(points, Stroke::new(2.0, c.accent())));
 
         painter.line_segment(
             [pos2(right, top), pos2(right, bottom)],
@@ -101,50 +99,62 @@ impl DS4UApp {
 
     pub(crate) fn render_haptics_settings(&mut self, ui: &mut Ui) {
         let c = self.theme.colors.clone();
+        let in_daemon = self.ipc.is_some();
+        let can_stream = self.controller.is_some() || self.ipc.is_some();
         let mut changed = false;
         let mut pat_changed = false;
         let mut params_changed = false;
+        let mut raw_action: Option<bool> = None;
+        let mut live_update = false;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                if self.ipc.is_some() {
-                    ds_section(ui, &c, "Pattern");
-                    ds_row(ui, |ui| {
-                        ds_label(ui, "Effect");
-                        ui.horizontal_wrapped(|ui| {
-                            for (p, label) in PATTERNS {
-                                let active = self.haptic_state.pattern == *p;
-                                if ds_pill_button(ui, &c, label, active).clicked() && !active {
-                                    self.haptic_state.pattern = *p;
+                let streaming = self.haptic_stream_active();
+
+                ds_section(ui, &c, "Pattern");
+                ds_row(ui, |ui| {
+                    ds_label(ui, "Effect");
+                    ui.horizontal_wrapped(|ui| {
+                        for (p, label) in PATTERNS {
+                            let active = self.haptic_state.pattern == *p;
+                            if ds_pill_button(ui, &c, label, active).clicked() && !active {
+                                self.haptic_state.pattern = *p;
+                                if in_daemon {
                                     pat_changed = true;
                                 }
+                                live_update = streaming;
                             }
-                        });
+                        }
                     });
+                });
 
-                    if !matches!(self.haptic_state.pattern, HapticPattern::None) {
-                        let mut s = self.haptic_state.strength as i32;
-                        ds_row(ui, |ui| {
-                            ds_label(ui, "Strength");
-                            if ds_slider_int(ui, &c, &mut s, 0..=7).changed() {
-                                self.haptic_state.strength = s as u8;
+                if !matches!(self.haptic_state.pattern, HapticPattern::None) {
+                    let mut s = self.haptic_state.strength as i32;
+                    ds_row(ui, |ui| {
+                        ds_label(ui, "Strength");
+                        if ds_slider_int(ui, &c, &mut s, 0..=7).changed() {
+                            self.haptic_state.strength = s as u8;
+                            if in_daemon {
                                 params_changed = true;
                             }
-                            ds_value_pct(ui, (s as f32 / 7.0) * 100.0);
-                        });
+                            live_update = streaming;
+                        }
+                        ds_value_pct(ui, (s as f32 / 7.0) * 100.0);
+                    });
 
-                        if !matches!(self.haptic_state.pattern, HapticPattern::Constant) {
-                            ds_row(ui, |ui| {
-                                ds_label(ui, "Speed");
-                                if ds_slider(ui, &c, &mut self.haptic_state.speed, 0.1..=10.0)
-                                    .changed()
-                                {
+                    if !matches!(self.haptic_state.pattern, HapticPattern::Constant) {
+                        ds_row(ui, |ui| {
+                            ds_label(ui, "Speed");
+                            if ds_slider(ui, &c, &mut self.haptic_state.speed, 0.1..=10.0).changed()
+                            {
+                                if in_daemon {
                                     params_changed = true;
                                 }
-                                ds_value_pct(ui, (self.haptic_state.speed / 10.0) * 100.0);
-                            });
-                        }
+                                live_update = streaming;
+                            }
+                            ds_value_pct(ui, (self.haptic_state.speed / 10.0) * 100.0);
+                        });
                     }
 
                     ds_section(ui, &c, "Live preview");
@@ -161,12 +171,22 @@ impl DS4UApp {
                             &c,
                         );
                     });
-                } else {
-                    ds_section(ui, &c, "Pattern");
+                }
+
+                ds_section(ui, &c, "Haptics");
+                if can_stream {
                     ds_row(ui, |ui| {
-                        ds_label(ui, "Daemon");
+                        ds_label(ui, "Stream");
+                        let label = if streaming { "Stop" } else { "Start" };
+                        if ds_pill_button(ui, &c, label, streaming).clicked() {
+                            raw_action = Some(!streaming);
+                        }
+                    });
+                } else {
+                    ds_row(ui, |ui| {
+                        ds_label(ui, "Status");
                         ui.label(
-                            RichText::new("Required for patterns")
+                            RichText::new("Connect a controller")
                                 .size(18.0)
                                 .italics()
                                 .color(c.text_dim()),
@@ -193,6 +213,7 @@ impl DS4UApp {
                     }
                     ds_value_pct(ui, ((7 - trg) as f32 / 7.0) * 100.0);
                 });
+
                 ds_section(ui, &c, "Test");
                 ds_row(ui, |ui| {
                     ds_label(ui, "Pulse");
@@ -216,6 +237,15 @@ impl DS4UApp {
         }
         if changed {
             self.apply_vibration();
+        }
+        match raw_action {
+            Some(true) => self.start_raw_haptics(),
+            Some(false) => self.stop_raw_haptics(),
+            None => {
+                if live_update {
+                    self.update_raw_haptics();
+                }
+            }
         }
     }
 }

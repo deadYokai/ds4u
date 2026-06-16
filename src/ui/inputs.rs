@@ -127,14 +127,14 @@ impl DS4UApp {
                 map(SVG_L2.0, SVG_L2.1),
                 trig_sz,
                 l2_raw,
-                buttons & BTN_L2 != 0,
+                c.accent(),
             );
             Self::render_trigger_bar(
                 &painter,
                 map(SVG_R2.0, SVG_R2.1),
                 trig_sz,
                 r2_raw,
-                buttons & BTN_R2 != 0,
+                c.accent(),
             );
 
             let meta_r = 2.5 * scale;
@@ -372,7 +372,13 @@ impl DS4UApp {
         p.add(s);
     }
 
-    fn render_trigger_bar(p: &Painter, anchor: Pos2, size: Vec2, analog: u8, digital: bool) {
+    fn render_trigger_bar(
+        p: &Painter,
+        anchor: Pos2,
+        size: Vec2,
+        analog: u8,
+        accent_color: Color32,
+    ) {
         let rect = Rect::from_min_size(pos2(anchor.x - size.x * 0.5, anchor.y), size);
         let rounding = CornerRadius::same(2);
 
@@ -382,15 +388,7 @@ impl DS4UApp {
         if fill_h > 0.5 {
             let fill_rect =
                 Rect::from_min_size(pos2(rect.min.x, rect.max.y - fill_h), vec2(size.x, fill_h));
-            p.rect_filled(
-                fill_rect,
-                rounding,
-                if digital {
-                    Color32::from_rgb(90, 160, 255)
-                } else {
-                    Color32::from_rgb(50, 90, 160)
-                },
-            );
+            p.rect_filled(fill_rect, rounding, accent_color);
         }
 
         p.rect_stroke(

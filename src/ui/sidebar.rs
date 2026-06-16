@@ -29,14 +29,14 @@ impl DS4UApp {
         let p = ui.painter();
 
         if active {
-            p.rect_filled(rect, 0.0, widgets::accent_alpha(&c, 84));
+            p.rect_filled(rect, 0.0, widgets::accent_alpha(c, 84));
             p.rect_filled(
                 Rect::from_min_size(rect.min, vec2(3.0, rect.height())),
                 0.0,
                 c.accent(),
             );
         } else if resp.hovered() {
-            p.rect_filled(rect, 0.0, widgets::hovered_alpha(&c, 32));
+            p.rect_filled(rect, 0.0, widgets::hovered_alpha(c, 32));
         }
 
         p.rect_filled(
@@ -182,7 +182,7 @@ impl DS4UApp {
         p.rect_filled(
             Rect::from_min_size(pos2(rect.min.x, rect.max.y - 1.0), vec2(rect.width(), 1.0)),
             0.0,
-            sep_color(&c),
+            sep_color(c),
         );
         p.text(
             pos2(rect.min.x + 20.0, rect.center().y),

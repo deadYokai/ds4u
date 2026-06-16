@@ -25,6 +25,7 @@ hidapi = { version = "2.6.6", default-features = false, features = [
 ] }
 udev = "0.9.3"
 libc = "0.2.186"
+alsa = "0.11.0"
 
 [features]
 default = []

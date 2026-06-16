@@ -39,7 +39,7 @@ impl Default for TriggerConfig {
 impl TriggerConfig {
     pub fn to_effect(&self) -> (u8, [u8; 10]) {
         match self.mode {
-            TriggerMode::Off => (0x05, [0; 10]),
+            TriggerMode::Off => (DS_TRIGGER_EFFECT_OFF, [0; 10]),
             TriggerMode::Feedback => {
                 let start = self.start.min(9) as usize;
                 let end = self.end.clamp(self.start, 9) as usize;
@@ -58,7 +58,7 @@ impl TriggerConfig {
                 p[3] = ((strength_zones >> 8) & 0xff) as u8;
                 p[4] = ((strength_zones >> 16) & 0xff) as u8;
                 p[5] = ((strength_zones >> 24) & 0xff) as u8;
-                (0x21, p)
+                (DS_TRIGGER_EFFECT_FEEDBACK, p)
             }
             TriggerMode::Weapon => {
                 let start = self.start.clamp(2, 7);
@@ -69,7 +69,7 @@ impl TriggerConfig {
                 p[0] = (positions & 0xff) as u8;
                 p[1] = ((positions >> 8) & 0xff) as u8;
                 p[2] = strength - 1;
-                (0x25, p)
+                (DS_TRIGGER_EFFECT_WEAPON, p)
             }
             TriggerMode::Bow => {
                 let start = self.start.min(8);
@@ -83,7 +83,7 @@ impl TriggerConfig {
                 p[1] = ((positions >> 8) & 0xff) as u8;
                 p[2] = (force & 0xff) as u8;
                 p[3] = ((force >> 8) & 0xff) as u8;
-                (0x22, p)
+                (DS_TRIGGER_EFFECT_BOW, p)
             }
             TriggerMode::Galloping => {
                 let start = self.start.min(8);
@@ -96,7 +96,7 @@ impl TriggerConfig {
                 p[1] = end;
                 p[2] = (second_foot << 4) | first_foot;
                 p[3] = freq;
-                (0x23, p)
+                (DS_TRIGGER_EFFECT_GALLOPING, p)
             }
             TriggerMode::Vibration => {
                 let start = self.start.min(9) as usize;
@@ -117,7 +117,7 @@ impl TriggerConfig {
                 p[4] = ((amp_zones >> 16) & 0xff) as u8;
                 p[5] = ((amp_zones >> 24) & 0xff) as u8;
                 p[6] = freq;
-                (0x26, p)
+                (DS_TRIGGER_EFFECT_VIBRATION, p)
             }
             TriggerMode::Machine => {
                 let start = self.start.min(8);
@@ -131,7 +131,7 @@ impl TriggerConfig {
                 p[2] = ((amp_b - 1) << 4) | (amp_a - 1);
                 p[3] = freq;
                 p[4] = 0;
-                (0x27, p)
+                (DS_TRIGGER_EFFECT_MACHINE, p)
             }
         }
     }

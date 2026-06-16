@@ -13,6 +13,8 @@ mod firmware;
 mod firmware_controller;
 mod input_poller;
 mod inputs;
+mod haptics_stream;
+mod usb_haptics;
 mod ipc;
 mod profiles;
 mod settings;

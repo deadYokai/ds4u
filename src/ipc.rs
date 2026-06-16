@@ -137,6 +137,9 @@ pub enum DaemonCommand {
         strength: u8,
         speed: f32,
     },
+    SetRawHaptics {
+        active: bool,
+    },
     SetGyro {
         enabled: bool,
         smoothing: f32,
@@ -421,6 +424,11 @@ impl IpcClient {
             DaemonResponse::Error { message } => bail!("{}", message),
             _ => Ok(()),
         }
+    }
+
+    pub fn set_raw_haptics(&mut self, active: bool) -> Result<()> {
+        self.request(DaemonCommand::SetRawHaptics { active })
+            .map(|_| ())
     }
 
     pub fn set_gyro(&mut self, enabled: bool, smoothing: f32, sensitivity: f32) -> Result<()> {

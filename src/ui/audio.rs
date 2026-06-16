@@ -5,6 +5,7 @@ use crate::common::{MicLedState, SpeakerMode};
 use crate::ui::widgets::{
     ds_label, ds_pill_button, ds_row, ds_section, ds_slider_int, ds_toggle, ds_value_pct,
 };
+use crate::util::mlock;
 
 impl DS4UApp {
     pub(crate) fn render_audio_settings(&mut self, ui: &mut Ui) {
@@ -46,11 +47,11 @@ impl DS4UApp {
                         if ds_pill_button(ui, &c, label, active).clicked() && !active {
                             self.audio.speaker_mode = mode;
                             if let Some(ipc) = self.ipc.clone() {
-                                let _ = ipc.lock().unwrap().set_speaker(key);
-                            } else if let Some(controller) = &self.controller {
-                                if let Ok(mut ctrl) = controller.lock() {
-                                    let _ = ctrl.set_speaker(key);
-                                }
+                                let _ = mlock(&ipc).set_speaker(key);
+                            } else if let Some(controller) = &self.controller
+                                && let Ok(mut ctrl) = controller.lock()
+                            {
+                                let _ = ctrl.set_speaker(key);
                             }
                         }
                     };
@@ -68,11 +69,11 @@ impl DS4UApp {
                     if ds_slider_int(ui, &c, &mut vol, 0..=255).changed() {
                         self.audio.volume = vol as u8;
                         if let Some(ipc) = self.ipc.clone() {
-                            let _ = ipc.lock().unwrap().set_volume(vol as u8);
-                        } else if let Some(controller) = &self.controller {
-                            if let Ok(mut ctrl) = controller.lock() {
-                                let _ = ctrl.set_volume(vol as u8);
-                            }
+                            let _ = mlock(&ipc).set_volume(vol as u8);
+                        } else if let Some(controller) = &self.controller
+                            && let Ok(mut ctrl) = controller.lock()
+                        {
+                            let _ = ctrl.set_volume(vol as u8);
                         }
                     }
                     ds_value_pct(ui, (self.audio.volume as f32 / 255.0) * 100.0);

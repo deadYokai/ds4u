@@ -12,7 +12,8 @@ use hidapi::HidApi;
 
 use crate::{
     common::{HapticPattern, LightbarEffect},
-    dualsense::DualSense,
+    dualsense::{DualSense, HAPTICS_PACKET_FRAMES, HAPTICS_SAMPLE_RATE},
+    haptics_stream::generate_packet,
     ipc::{
         DaemonCommand, DaemonResponse, DaemonStream, IpcClient, addr_display, bind_daemon,
         cleanup_endpoint, daemon_endpoint,
@@ -65,6 +66,7 @@ struct DaemonInner {
     trigger_left: Option<(u8, [u8; 10])>,
     trigger_right: Option<(u8, [u8; 10])>,
     haptic: (HapticPattern, u8, f32),
+    raw_haptics: bool,
     gyro: GyroProcessor,
 }
 
@@ -90,6 +92,7 @@ impl DaemonState {
                 trigger_left: None,
                 trigger_right: None,
                 haptic: (HapticPattern::None, 0, 1.0),
+                raw_haptics: false,
                 gyro: GyroProcessor::default(),
             }),
             hotplug: (Mutex::new(false), Condvar::new()),
@@ -192,6 +195,11 @@ pub fn run_daemon() {
     {
         let s = Arc::clone(&state);
         thread::spawn(move || haptic_loop(s));
+    }
+
+    {
+        let s = Arc::clone(&state);
+        thread::spawn(move || raw_haptic_loop(s));
     }
 
     for stream in listener.incoming() {
@@ -393,6 +401,11 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                 if restoring && let Some(ds) = mlock(&state.device).as_mut() {
                     let _ = ds.set_vibration(0, 0);
                 }
+                send(&mut writer, DaemonResponse::Ok);
+            }
+
+            DaemonCommand::SetRawHaptics { active } => {
+                wlock(&state.inner).raw_haptics = active;
                 send(&mut writer, DaemonResponse::Ok);
             }
 
@@ -688,7 +701,21 @@ fn haptic_loop(state: Arc<DaemonState>) {
             continue;
         }
 
-        let (pattern, strength, speed) = rlock(&state.inner).haptic;
+        let (raw, (pattern, strength, speed)) = {
+            let g = rlock(&state.inner);
+            (g.raw_haptics, g.haptic)
+        };
+        if raw {
+            if last_amp != 0 {
+                let mut dev = mlock(&state.device);
+                if let Some(ds) = dev.as_mut() {
+                    let _ = ds.set_rumble(0, 0);
+                }
+                last_amp = 0;
+            }
+            continue;
+        }
+
         if matches!(pattern, HapticPattern::None) {
             if last_amp != 0 {
                 let mut dev = mlock(&state.device);
@@ -721,11 +748,35 @@ fn haptic_loop(state: Arc<DaemonState>) {
 
         let amp = (intensity.clamp(0.0, 1.0) * 255.0).round() as u8;
         if amp != last_amp {
-            let mut dev = state.device.lock().unwrap();
+            let mut dev = mlock(&state.device);
             if let Some(ds) = dev.as_mut() {
                 let _ = ds.set_rumble(amp, amp);
             }
             last_amp = amp;
+        }
+    }
+}
+
+fn raw_haptic_loop(state: Arc<DaemonState>) {
+    let start = Instant::now();
+    let period = Duration::from_secs_f32(HAPTICS_PACKET_FRAMES as f32 / HAPTICS_SAMPLE_RATE as f32);
+    loop {
+        sleep(period);
+        if state.update_in_progress.load(Ordering::Relaxed) {
+            continue;
+        }
+        let (raw, (pattern, strength, speed)) = {
+            let g = rlock(&state.inner);
+            (g.raw_haptics, g.haptic)
+        };
+        if !raw || matches!(pattern, HapticPattern::None) {
+            continue;
+        }
+        let t0 = start.elapsed().as_secs_f32();
+        let packet = generate_packet(pattern, strength, speed, t0);
+        let mut dev = mlock(&state.device);
+        if let Some(ds) = dev.as_mut().filter(|d| d.is_bluetooth()) {
+            let _ = ds.set_haptics(&packet);
         }
     }
 }

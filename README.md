@@ -154,8 +154,11 @@ All color values are `[R, G, B]` in the 0–255 range.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## References:
+- https://github.com/nowrep/dualsensectl
+- https://github.com/hurryman2212/vds
+
 ## Todo
-- [ ] make better UX/UI (full redesign)
 - [ ] other possible issues
 - [ ] DualSense Egde support
 

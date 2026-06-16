@@ -62,12 +62,18 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: update to v$PKGVER"
           git push
 
+      - name: Update PKGBUILD version (git)
+        run: |
+          cd packages/aur-git
+          makepkg -od --noprepare --nodeps
+          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          makepkg --printsrcinfo > .SRCINFO
+
       - name: Push git to AUR
         run: |
           git clone ssh://aur@aur.archlinux.org/ds4u-git.git /tmp/aur-ds4u-git
           cp packages/aur-git/PKGBUILD /tmp/aur-ds4u-git/PKGBUILD
-          cd /tmp/aur-ds4u-git
-          makepkg --printsrcinfo > .SRCINFO
+          cp packages/aur-git/.SRCINFO /tmp/aur-ds4u-git/.SRCINFO
           cd /tmp/aur-ds4u-git
           git add PKGBUILD .SRCINFO
           git diff --cached --quiet || git commit -m "chore: sync with v$PKGVER release"
