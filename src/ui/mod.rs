@@ -16,6 +16,7 @@ pub mod gyroscope;
 pub mod haptics;
 pub mod inputs;
 pub mod lightbar;
+pub mod navigation;
 pub mod profiles;
 pub mod settings;
 pub mod sidebar;
@@ -90,6 +91,7 @@ impl DS4UApp {
 
 impl App for DS4UApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.egui_ctx = Some(ctx.clone());
         if !self.is_connected() {
             if self.last_connection_check.elapsed() > Duration::from_millis(200) {
                 self.check_for_controller();
@@ -100,8 +102,9 @@ impl App for DS4UApp {
                 self.active_section,
                 Section::Inputs | Section::Sticks | Section::Touchpad | Section::Gyroscope
             );
+            let want_poll = !self.firmware.updating && !self.haptic_stream_active();
 
-            if needs_input {
+            if want_poll {
                 if !self.input.polling {
                     self.start_input_polling();
                 }
@@ -114,7 +117,7 @@ impl App for DS4UApp {
                     .unwrap_or_default();
 
                 if let Some(mut state) = states.into_iter().last() {
-                    if !self.using_daemon() {
+                    if needs_input && !self.using_daemon() {
                         self.input_transform.apply(&mut state);
                     }
                     self.input.controller_state = Some(state);
@@ -122,6 +125,7 @@ impl App for DS4UApp {
             } else if self.input.polling {
                 self.stop_input_polling();
             }
+            self.handle_controller_nav(ctx);
 
             if needs_input || self.active_section == Section::Haptics {
                 ctx.request_repaint();
@@ -179,6 +183,7 @@ impl App for DS4UApp {
                 .show(ctx, |ui| self.render_header(ui));
         }
 
+        self.focus_begin_frame(ctx);
         CentralPanel::default()
             .frame(Frame::NONE.fill(c.window_bg()))
             .show(ctx, |ui| {
@@ -190,6 +195,7 @@ impl App for DS4UApp {
                     self.render_connection(ui);
                 }
             });
+        self.focus_end_frame(ctx);
 
         if self.firmware.updating {
             ctx.request_repaint();

@@ -61,6 +61,8 @@ pub(crate) struct DS4UApp {
 
     pub(crate) firmware: FirmwareController,
     pub(crate) input: InputPoller,
+    pub(crate) nav: crate::ui::navigation::Navigator,
+    pub(crate) egui_ctx: Option<egui::Context>,
 
     pub(crate) controller_serial: Option<String>,
 
@@ -178,6 +180,8 @@ impl DS4UApp {
 
             firmware: FirmwareController::new(),
             input: InputPoller::new(),
+            nav: crate::ui::navigation::Navigator::new(),
+            egui_ctx: None,
 
             controller_serial: None,
 
@@ -244,6 +248,8 @@ impl DS4UApp {
         self.input.stop = Some(stop_flag);
         self.input.polling = true;
 
+        let waker = self.egui_ctx.clone();
+
         let handle = if self.ipc.is_some() {
             let path = socket_path();
             thread::spawn(move || {
@@ -251,10 +257,21 @@ impl DS4UApp {
                     Ok(c) => c,
                     Err(_) => return,
                 };
+                let mut last_b = u32::MAX;
+                let mut last_d = 0xFFu8;
                 while !stop_clone.load(sync::atomic::Ordering::Relaxed) {
                     match client.get_input_state() {
                         Ok(state) => {
+                            let (b, d, ry) = (state.buttons, state.dpad, state.right_y);
                             let _ = tx.send(state);
+                            if let Some(ctx) = &waker {
+                                let stick = (ry as i16 - 128).abs() > 24;
+                                if b != last_b || d != last_d || stick {
+                                    ctx.request_repaint();
+                                }
+                            }
+                            last_b = b;
+                            last_d = d;
                         }
                         Err(_) => {
                             sleep(Duration::from_millis(8));
@@ -267,10 +284,21 @@ impl DS4UApp {
                 return;
             };
             thread::spawn(move || {
+                let mut last_b = u32::MAX;
+                let mut last_d = 0xFFu8;
                 while !stop_clone.load(sync::atomic::Ordering::Relaxed) {
                     if let Ok(mut c) = ctrl.try_lock() {
                         if let Ok(state) = c.get_input_state() {
+                            let (b, d, ry) = (state.buttons, state.dpad, state.right_y);
                             let _ = tx.send(state);
+                            if let Some(ctx) = &waker {
+                                let stick = (ry as i16 - 128).abs() > 24;
+                                if b != last_b || d != last_d || stick {
+                                    ctx.request_repaint();
+                                }
+                            }
+                            last_b = b;
+                            last_d = d;
                         } else {
                             sleep(Duration::from_millis(8));
                         }

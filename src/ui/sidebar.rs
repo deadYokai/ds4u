@@ -21,6 +21,25 @@ const NAV: &[(Section, &str)] = &[
 ];
 
 impl DS4UApp {
+    pub(crate) fn cycle_section(&mut self, dir: i32) {
+        let connected = self.is_connected();
+        let visible: Vec<Section> = NAV
+            .iter()
+            .filter(|(s, _)| connected || *s == Section::Settings)
+            .map(|(s, _)| *s)
+            .collect();
+        if visible.len() < 2 {
+            return;
+        }
+        let len = visible.len() as i32;
+        let cur = visible
+            .iter()
+            .position(|s| *s == self.active_section)
+            .unwrap_or(0) as i32;
+        let next = ((cur + dir) % len + len) % len;
+        self.active_section = visible[next as usize];
+    }
+
     fn render_nav_item(&mut self, ui: &mut Ui, label: &str, section: Section) {
         let active = self.active_section == section;
         let w = ui.available_width();

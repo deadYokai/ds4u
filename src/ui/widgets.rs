@@ -2,12 +2,71 @@ use egui::{
     Color32, CornerRadius, Rect, Response, RichText, Sense, Stroke, Ui, UiBuilder, pos2, vec2,
 };
 
-use crate::theme::ThemeColors;
+use crate::{
+    theme::ThemeColors,
+    ui::navigation::{NavFocus, nav_focus_id},
+};
 
 pub const ROW_HEIGHT: f32 = 50.0;
 pub const ROW_PAD_X: f32 = 26.0;
 pub const LBL_WIDTH: f32 = 180.0;
 pub const VAL_WIDTH: f32 = 64.0;
+
+struct FocusHit {
+    focused: bool,
+    activate: bool,
+    adjust: i32,
+}
+
+fn focus_hit(ui: &Ui, rect: Rect) -> FocusHit {
+    ui.ctx().data_mut(|d| {
+        let f = d.get_temp_mut_or_default::<NavFocus>(nav_focus_id());
+        let i = f.counter;
+        f.counter += 1;
+        f.rects.push(rect);
+        if f.enabled && i == f.index {
+            FocusHit {
+                focused: true,
+                activate: std::mem::take(&mut f.activate),
+                adjust: std::mem::replace(&mut f.adjust, 0),
+            }
+        } else {
+            FocusHit {
+                focused: false,
+                activate: false,
+                adjust: 0,
+            }
+        }
+    })
+}
+
+fn paint_focus_ring(ui: &Ui, rect: Rect) {
+    let accent = accent_of(ui);
+    ui.painter().rect_stroke(
+        rect.expand(3.0),
+        CornerRadius::same(4),
+        Stroke::new(2.0, accent),
+        egui::StrokeKind::Outside,
+    );
+    ui.scroll_to_rect(rect.expand(8.0), None);
+}
+
+pub struct DsClick {
+    resp: Response,
+    activated: bool,
+}
+
+impl DsClick {
+    pub fn clicked(&self) -> bool {
+        self.resp.clicked() || self.activated
+    }
+    pub fn on_hover_text(self, text: impl Into<egui::WidgetText>) -> Self {
+        DsClick {
+            resp: self.resp.on_hover_text(text),
+            activated: self.activated,
+        }
+    }
+}
 
 #[inline]
 pub fn with_alpha(color: Color32, a: u8) -> Color32 {
@@ -158,6 +217,17 @@ pub fn ds_slider(
     value: &mut f32,
     range: std::ops::RangeInclusive<f32>,
 ) -> Response {
+    let step = (*range.end() - *range.start()) / 20.0;
+    ds_slider_inner(ui, c, value, range, step)
+}
+
+pub fn ds_slider_inner(
+    ui: &mut Ui,
+    c: &ThemeColors,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    adjust_step: f32,
+) -> Response {
     let reserved = VAL_WIDTH + 14.0;
     let w = (ui.available_width() - reserved).max(40.0);
     let (rect, mut resp) = ui.allocate_exact_size(vec2(w, 18.0), Sense::click_and_drag());
@@ -171,6 +241,16 @@ pub fn ds_slider(
             resp.mark_changed();
         }
     }
+
+    let hit = focus_hit(ui, rect);
+    if hit.adjust != 0 {
+        let nv = (*value + hit.adjust as f32 * adjust_step).clamp(min, max);
+        if (nv - *value).abs() > 1e-6 {
+            *value = nv;
+            resp.mark_changed();
+        }
+    }
+
     let t = ((*value - min) / (max - min).max(1e-6)).clamp(0.0, 1.0);
 
     let y = rect.center().y;
@@ -194,6 +274,9 @@ pub fn ds_slider(
     };
     p.circle_stroke(thumb, r + 0.5, Stroke::new(2.0, accent_alpha(c, ring_a)));
     p.circle_filled(thumb, r, with_alpha(c.text(), 238));
+    if hit.focused {
+        paint_focus_ring(ui, rect);
+    }
     resp
 }
 
@@ -202,6 +285,18 @@ pub fn ds_toggle(ui: &mut Ui, c: &ThemeColors, on: &mut bool) -> Response {
     let (rect, mut resp) = ui.allocate_exact_size(size, Sense::click());
     if resp.clicked() {
         *on = !*on;
+        resp.mark_changed();
+    }
+
+    let hit = focus_hit(ui, rect);
+    if hit.activate {
+        *on = !*on;
+        resp.mark_changed();
+    } else if hit.adjust > 0 && !*on {
+        *on = true;
+        resp.mark_changed();
+    } else if hit.adjust < 0 && *on {
+        *on = false;
         resp.mark_changed();
     }
 
@@ -233,6 +328,9 @@ pub fn ds_toggle(ui: &mut Ui, c: &ThemeColors, on: &mut bool) -> Response {
         ("Disabled", text_alpha(c, 76))
     };
     ui.label(RichText::new(txt).size(20.0).color(col));
+    if hit.focused {
+        paint_focus_ring(ui, rect);
+    }
     resp
 }
 
@@ -266,7 +364,8 @@ pub fn ds_slider_int(
 ) -> Response {
     let (lo, hi) = (*range.start() as f32, *range.end() as f32);
     let mut f = *value as f32;
-    let r = ds_slider(ui, c, &mut f, lo..=hi);
+    let step = ((hi - lo) / 24.0).max(1.0);
+    let r = ds_slider_inner(ui, c, &mut f, lo..=hi, step);
     let n = f.round() as i32;
     if n != *value {
         *value = n;
@@ -274,7 +373,7 @@ pub fn ds_slider_int(
     r
 }
 
-pub fn ds_pill_button(ui: &mut Ui, c: &ThemeColors, label: &str, active: bool) -> Response {
+pub fn ds_pill_button(ui: &mut Ui, c: &ThemeColors, label: &str, active: bool) -> DsClick {
     let text_size = 14.0;
     let pad = vec2(14.0, 6.0);
     let galley = ui.painter().layout_no_wrap(
@@ -284,6 +383,7 @@ pub fn ds_pill_button(ui: &mut Ui, c: &ThemeColors, label: &str, active: bool) -
     );
     let size = galley.size() + pad * 2.0;
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let hit = focus_hit(ui, rect);
 
     let p = ui.painter();
     let stroke_col = if active {
@@ -315,11 +415,18 @@ pub fn ds_pill_button(ui: &mut Ui, c: &ThemeColors, label: &str, active: bool) -
         egui::FontId::proportional(text_size),
         text_col,
     );
-    resp
+    if hit.focused {
+        paint_focus_ring(ui, rect);
+    }
+    DsClick {
+        resp,
+        activated: hit.activate,
+    }
 }
 
-pub fn ds_swatch(ui: &mut Ui, color: Color32, active: bool) -> Response {
+pub fn ds_swatch(ui: &mut Ui, color: Color32, active: bool) -> DsClick {
     let (rect, resp) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::click());
+    let hit = focus_hit(ui, rect);
     let p = ui.painter();
     p.rect_filled(rect, CornerRadius::same(4), color);
     if active || resp.hovered() {
@@ -332,7 +439,13 @@ pub fn ds_swatch(ui: &mut Ui, color: Color32, active: bool) -> Response {
             egui::StrokeKind::Outside,
         );
     }
-    resp
+    if hit.focused {
+        paint_focus_ring(ui, rect);
+    }
+    DsClick {
+        resp,
+        activated: hit.activate,
+    }
 }
 
 pub fn ds_panel_title(ui: &mut Ui, c: &ThemeColors, text: String) {
