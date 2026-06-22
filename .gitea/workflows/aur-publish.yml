@@ -54,6 +54,7 @@ jobs:
 
       - name: Push stable to AUR
         run: |
+          rm -rf /tmp/aur-ds4u
           git clone ssh://aur@aur.archlinux.org/ds4u.git /tmp/aur-ds4u
           cp packages/aur/PKGBUILD /tmp/aur-ds4u/PKGBUILD
           cp packages/aur/.SRCINFO /tmp/aur-ds4u/.SRCINFO
@@ -71,6 +72,7 @@ jobs:
 
       - name: Push git to AUR
         run: |
+          rm -rf /tmp/aur-ds4u-git
           git clone ssh://aur@aur.archlinux.org/ds4u-git.git /tmp/aur-ds4u-git
           cp packages/aur-git/PKGBUILD /tmp/aur-ds4u-git/PKGBUILD
           cp packages/aur-git/.SRCINFO /tmp/aur-ds4u-git/.SRCINFO
