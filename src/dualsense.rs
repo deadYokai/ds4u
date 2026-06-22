@@ -193,7 +193,7 @@ Please connect your controller via USB or Bluetooth."
         }
 
         let mut buf = vec![0u8; DS_INPUT_REPORT_BT_SIZE];
-        let size = self.device.read_timeout(&mut buf, 200)?;
+        let size = self.device.read_timeout(&mut buf, 16)?;
 
         if size == 0 {
             bail!("Timeout reading input state");

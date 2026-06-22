@@ -280,15 +280,24 @@ impl DS4UApp {
                 }
             })
         } else {
-            let Some(ctrl) = self.controller.clone() else {
+            if self.controller.is_none() {
                 return;
-            };
+            }
+            let serial = self.controller_serial.clone();
             thread::spawn(move || {
+                let api = match HidApi::new() {
+                    Ok(a) => a,
+                    Err(_) => return,
+                };
+                let mut reader = match DualSense::new(&api, serial.as_deref()) {
+                    Ok(d) => d,
+                    Err(_) => return,
+                };
                 let mut last_b = u32::MAX;
                 let mut last_d = 0xFFu8;
                 while !stop_clone.load(sync::atomic::Ordering::Relaxed) {
-                    if let Ok(mut c) = ctrl.try_lock() {
-                        if let Ok(state) = c.get_input_state() {
+                    match reader.get_input_state() {
+                        Ok(state) => {
                             let (b, d, ry) = (state.buttons, state.dpad, state.right_y);
                             let _ = tx.send(state);
                             if let Some(ctx) = &waker {
@@ -299,12 +308,10 @@ impl DS4UApp {
                             }
                             last_b = b;
                             last_d = d;
-                        } else {
+                        }
+                        Err(_) => {
                             sleep(Duration::from_millis(8));
                         }
-                        drop(c);
-                    } else {
-                        sleep(Duration::from_millis(8));
                     }
                 }
             })
