@@ -27,7 +27,7 @@ pub const BTN_PS: u32 = 1 << 12;
 pub const BTN_TOUCHPAD: u32 = 1 << 13;
 pub const BTN_MUTE: u32 = 1 << 14;
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone, Copy)]
 pub struct TouchPoint {
     pub active: bool,
     pub id: u8,
@@ -35,7 +35,7 @@ pub struct TouchPoint {
     pub y: u16,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct ControllerState {
     pub left_x: u8,
     pub left_y: u8,

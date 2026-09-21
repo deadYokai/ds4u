@@ -14,6 +14,8 @@ use crate::{
     common::{HapticPattern, LightbarEffect},
     dualsense::{DualSense, HAPTICS_PACKET_FRAMES, HAPTICS_SAMPLE_RATE},
     haptics_stream::generate_packet,
+    input_grab::InputGrab,
+    inputs::ControllerState,
     ipc::{
         DaemonCommand, DaemonResponse, DaemonStream, IpcClient, addr_display, bind_daemon,
         cleanup_endpoint, daemon_endpoint,
@@ -22,6 +24,7 @@ use crate::{
     settings::SettingsManager,
     transform::{GyroProcessor, InputTransform},
     util::{mlock, rlock, wait_cv, wlock},
+    virtual_gamepad::VirtualGamepad,
 };
 
 const TAG: &str = "[ds4u daemon]";
@@ -70,17 +73,27 @@ struct DaemonInner {
     gyro: GyroProcessor,
 }
 
+#[derive(Clone, Copy)]
+struct LatestInput {
+    state: ControllerState,
+    status_byte: u8,
+    at: Instant,
+}
+
 struct DaemonState {
     device: Mutex<Option<DualSense>>,
+    grab: Mutex<Option<InputGrab>>,
     update_in_progress: AtomicBool,
     inner: RwLock<DaemonInner>,
     hotplug: (Mutex<bool>, Condvar),
+    latest_input: Mutex<Option<LatestInput>>,
 }
 
 impl DaemonState {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             device: Mutex::new(None),
+            grab: Mutex::new(None),
             update_in_progress: AtomicBool::new(false),
             inner: RwLock::new(DaemonInner {
                 active_transform: InputTransform::default(),
@@ -96,8 +109,19 @@ impl DaemonState {
                 gyro: GyroProcessor::default(),
             }),
             hotplug: (Mutex::new(false), Condvar::new()),
+            latest_input: Mutex::new(None),
         })
     }
+}
+
+fn fresh_input(state: &DaemonState) -> Option<LatestInput> {
+    (*mlock(&state.latest_input)).filter(|l| l.at.elapsed() < Duration::from_millis(500))
+}
+
+fn signal_hotplug(state: &DaemonState) {
+    let (l, c) = &state.hotplug;
+    *mlock(l) = true;
+    c.notify_all();
 }
 
 fn apply_profile_to_state(state: &Arc<DaemonState>, name: &str) -> String {
@@ -202,6 +226,11 @@ pub fn run_daemon() {
         thread::spawn(move || raw_haptic_loop(s));
     }
 
+    {
+        let s = Arc::clone(&state);
+        thread::spawn(move || gamepad_loop(s));
+    }
+
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
@@ -213,9 +242,87 @@ pub fn run_daemon() {
     }
 }
 
+enum Poll {
+    NoDevice,
+    Failed,
+    Data((u16, u16), Option<crate::dualsense::PolledInput>),
+}
+
+fn gamepad_loop(state: Arc<DaemonState>) {
+    let mut pad: Option<VirtualGamepad> = None;
+    let mut pad_ids: Option<(u16, u16)> = None;
+    let mut pad_disabled = false;
+
+    loop {
+        sleep(Duration::from_millis(1));
+        if state.update_in_progress.load(Ordering::Relaxed) {
+            sleep(Duration::from_millis(20));
+            continue;
+        }
+
+        let poll = {
+            let mut dev = mlock(&state.device);
+            match dev.as_mut() {
+                None => Poll::NoDevice,
+                Some(ds) => {
+                    let ids = (ds.vendor_id(), ds.product_id());
+                    match ds.poll_latest_input() {
+                        Ok(p) => Poll::Data(ids, p),
+                        Err(_) => Poll::Failed,
+                    }
+                }
+            }
+        };
+
+        let (ids, polled) = match poll {
+            Poll::NoDevice => {
+                sleep(Duration::from_millis(20));
+                continue;
+            }
+            Poll::Failed => {
+                println!("{} input read failed - dropping handle", TAG);
+                *mlock(&state.device) = None;
+                signal_hotplug(&state);
+                continue;
+            }
+            Poll::Data(ids, p) => (ids, p),
+        };
+
+        if !pad_disabled && pad_ids != Some(ids) {
+            pad = None;
+            match VirtualGamepad::new(ids.0, ids.1) {
+                Ok(p) => {
+                    println!("{} virtual gamepad {:04x}:{:04x}", TAG, ids.0, ids.1);
+                    pad = Some(p);
+                    pad_ids = Some(ids);
+                }
+                Err(e) => {
+                    eprintln!("{} virtual gamepad disabled: {}", TAG, e);
+                    pad_disabled = true;
+                }
+            }
+        }
+
+        let Some(p) = polled else { continue };
+
+        *mlock(&state.latest_input) = Some(LatestInput {
+            state: p.state,
+            status_byte: p.status_byte,
+            at: Instant::now(),
+        });
+
+        if let Some(pad) = pad.as_mut() {
+            let mut st = p.state;
+            rlock(&state.inner).active_transform.apply(&mut st);
+            let _ = pad.update(&st);
+        }
+    }
+}
+
 fn device_connection_loop(state: Arc<DaemonState>) {
     loop {
         if !state.update_in_progress.load(Ordering::Relaxed) {
+            let mut connected_now = false;
             let mut dev = mlock(&state.device);
             if dev.is_none()
                 && let Ok(api) = HidApi::new()
@@ -242,9 +349,17 @@ fn device_connection_loop(state: Arc<DaemonState>) {
                 let _ = ds.set_trigger_effects(l, r2);
 
                 *dev = Some(ds);
+
+                connected_now = true;
             }
 
             drop(dev);
+
+            if connected_now {
+                *mlock(&state.grab) = None;
+                sleep(Duration::from_millis(200));
+                *mlock(&state.grab) = Some(InputGrab::acquire());
+            }
         }
 
         let (lock, cvar) = &state.hotplug;
@@ -308,6 +423,16 @@ fn hotplug_thread(state: Arc<DaemonState>) {
     }
 }
 
+fn no_input_resp(state: &DaemonState) -> DaemonResponse {
+    if mlock(&state.device).is_some() {
+        DaemonResponse::Error {
+            message: "no fresh input report".into(),
+        }
+    } else {
+        DaemonResponse::NoDevice
+    }
+}
+
 fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
     let write_half = match stream.try_clone() {
         Ok(s) => s,
@@ -360,6 +485,7 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                 if active {
                     state.update_in_progress.store(true, Ordering::SeqCst);
                     *mlock(&state.device) = None;
+                    *mlock(&state.grab) = None;
                     println!("{} device released for firmware update", TAG);
                 } else {
                     state.update_in_progress.store(false, Ordering::SeqCst);
@@ -527,10 +653,24 @@ fn handle_client(stream: DaemonStream, state: Arc<DaemonState>) {
                 send(&mut writer, DaemonResponse::ActiveProfile { name });
             }
 
-            cmd @ (DaemonCommand::GetBattery
-            | DaemonCommand::GetInputState
-            | DaemonCommand::GetFirmwareInfo
-            | DaemonCommand::GetControllerInfo) => {
+            DaemonCommand::GetInputState => match fresh_input(&state) {
+                Some(l) => {
+                    let mut s = l.state;
+                    rlock(&state.inner).active_transform.apply(&mut s);
+                    send(&mut writer, DaemonResponse::InputState(s));
+                }
+                None => send(&mut writer, no_input_resp(&state)),
+            },
+
+            DaemonCommand::GetBattery => match fresh_input(&state) {
+                Some(l) => send(
+                    &mut writer,
+                    DaemonResponse::Battery(DualSense::battery_from_status(l.status_byte)),
+                ),
+                None => send(&mut writer, no_input_resp(&state)),
+            },
+
+            cmd @ (DaemonCommand::GetFirmwareInfo | DaemonCommand::GetControllerInfo) => {
                 let transform = rlock(&state.inner).active_transform.clone();
                 let mut dev = mlock(&state.device);
                 match dev.as_mut() {

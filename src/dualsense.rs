@@ -103,6 +103,11 @@ struct DualSenseInputReport {
     reserved2: u8,
 }
 
+pub struct PolledInput {
+    pub state: ControllerState,
+    pub status_byte: u8,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct BatteryInfo {
     pub capacity: u8,
@@ -116,6 +121,7 @@ pub struct DualSense {
     haptics_output_seq: u8,
     haptics_packet_counter: u8,
     product_id: u16,
+    vendor_id: u16,
     serial: String,
     update_mode: Arc<AtomicBool>,
 }
@@ -158,6 +164,7 @@ Please connect your controller via USB or Bluetooth."
         let serial = device_info.serial_number().unwrap_or("Unknown").to_string();
         let device = device_info.open_device(api)?;
         let is_bt = device_info.interface_number() == -1;
+        let vendor_id = device_info.vendor_id();
 
         Ok(DualSense {
             device,
@@ -166,6 +173,7 @@ Please connect your controller via USB or Bluetooth."
             haptics_output_seq: 0,
             haptics_packet_counter: 0,
             product_id,
+            vendor_id,
             serial,
             update_mode: Arc::new(AtomicBool::new(false)),
         })
@@ -187,18 +195,61 @@ Please connect your controller via USB or Bluetooth."
         self.update_mode.load(Ordering::Relaxed)
     }
 
-    pub fn get_input_state(&mut self) -> Result<ControllerState> {
+    fn report_status_byte(&mut self, buf: &[u8], size: usize) -> Option<u8> {
+        let (id, len, off) = if self.is_bt {
+            (DS_INPUT_REPORT_BT, DS_INPUT_REPORT_BT_SIZE, 54)
+        } else {
+            (DS_INPUT_REPORT_USB, DS_INPUT_REPORT_USB_SIZE, 53)
+        };
+        (buf[0] == id && size == len).then(|| buf[off])
+    }
+
+    pub fn battery_from_status(status_byte: u8) -> BatteryInfo {
+        let bat_data = status_byte & DS_STATUS_BATTERY_CAPACITY;
+        let charging_status = (status_byte & DS_STATUS_CHARGING) >> DS_STATUS_CHARGING_SHIFT;
+        let (capacity, status) = match charging_status {
+            0x0 => ((bat_data * 10 + 5).min(100), "Discharging"),
+            0x1 => ((bat_data * 10 + 5).min(100), "Charging"),
+            0x2 => ((bat_data * 10 + 5).min(100), "Full"),
+            0xa | 0xb => (0, "Not charging"),
+            _ => (0, "Unknown"),
+        };
+        BatteryInfo {
+            capacity,
+            status: status.to_string(),
+        }
+    }
+
+    pub fn poll_latest_input(&mut self) -> Result<Option<PolledInput>> {
         if self.is_updating() {
-            bail!("");
+            return Ok(None);
         }
 
-        let mut buf = vec![0u8; DS_INPUT_REPORT_BT_SIZE];
-        let size = self.device.read_timeout(&mut buf, 16)?;
-
-        if size == 0 {
-            bail!("Timeout reading input state");
+        let mut buf = [0u8; DS_INPUT_REPORT_BT_SIZE];
+        let mut newest: Option<([u8; DS_INPUT_REPORT_BT_SIZE], usize)> = None;
+        loop {
+            let n = self.device.read_timeout(&mut buf, 0)?;
+            if n == 0 {
+                break;
+            }
+            if self.report_status_byte(&buf, n).is_some() {
+                newest = Some((buf, n));
+            }
         }
+        let Some((raw, n)) = newest else {
+            return Ok(None);
+        };
+        Ok(Some(PolledInput {
+            state: self.parse_input_report(&raw, n)?,
+            status_byte: self.report_status_byte(&raw, n).unwrap_or(0),
+        }))
+    }
 
+    pub fn vendor_id(&self) -> u16 {
+        self.vendor_id
+    }
+
+    fn parse_input_report(&mut self, buf: &[u8], size: usize) -> Result<ControllerState> {
         let (id, expected_size, offset) = if self.is_bt {
             (DS_INPUT_REPORT_BT, DS_INPUT_REPORT_BT_SIZE, 2)
         } else {
@@ -333,6 +384,18 @@ Please connect your controller via USB or Bluetooth."
             touch_count,
             touch_points,
         })
+    }
+
+    pub fn get_input_state(&mut self) -> Result<ControllerState> {
+        if self.is_updating() {
+            bail!("");
+        }
+        let mut buf = vec![0u8; DS_INPUT_REPORT_BT_SIZE];
+        let size = self.device.read_timeout(&mut buf, 16)?;
+        if size == 0 {
+            bail!("Timeout reading input state");
+        }
+        self.parse_input_report(&buf, size)
     }
 
     pub fn get_firmware_info(&self) -> Result<(u16, String, String)> {
@@ -657,21 +720,7 @@ Please connect your controller via USB or Bluetooth."
 
         let status_byte = buf[status_offset];
 
-        let bat_data = status_byte & DS_STATUS_BATTERY_CAPACITY;
-        let charging_status = (status_byte & DS_STATUS_CHARGING) >> DS_STATUS_CHARGING_SHIFT;
-
-        let (capacity, status) = match charging_status {
-            0x0 => ((bat_data * 10 + 5).min(100), "Discharging"),
-            0x1 => ((bat_data * 10 + 5).min(100), "Charging"),
-            0x2 => ((bat_data * 10 + 5).min(100), "Full"),
-            0xa | 0xb => (0, "Not charging"),
-            _ => (0, "Unknown"),
-        };
-
-        Ok(BatteryInfo {
-            capacity,
-            status: status.to_string(),
-        })
+        Ok(DualSense::battery_from_status(status_byte))
     }
 
     pub fn update_firmware(

@@ -272,6 +272,7 @@ impl DS4UApp {
                             }
                             last_b = b;
                             last_d = d;
+                            sleep(Duration::from_millis(8));
                         }
                         Err(_) => {
                             sleep(Duration::from_millis(8));
