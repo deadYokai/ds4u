@@ -9,9 +9,9 @@ use std::os::unix::io::AsRawFd;
 use anyhow::{Context, Result, bail};
 
 use crate::inputs::{
-    BTN_CIRCLE, BTN_CREATE, BTN_CROSS, BTN_L1, BTN_L3, BTN_OPTIONS, BTN_PS, BTN_R1, BTN_R3,
-    BTN_SQUARE, BTN_TRIANGLE, ControllerState, DPAD_E, DPAD_N, DPAD_NE, DPAD_NW, DPAD_S, DPAD_SE,
-    DPAD_SW, DPAD_W,
+    BTN_CIRCLE, BTN_CREATE, BTN_CROSS, BTN_L1, BTN_L2, BTN_L3, BTN_OPTIONS, BTN_PS, BTN_R1, BTN_R2,
+    BTN_R3, BTN_SQUARE, BTN_TRIANGLE, ControllerState, DPAD_E, DPAD_N, DPAD_NE, DPAD_NW, DPAD_S,
+    DPAD_SE, DPAD_SW, DPAD_W,
 };
 
 const EV_SYN: u16 = 0x00;
@@ -24,6 +24,8 @@ const BTN_NORTH: u16 = 0x133;
 const BTN_WEST: u16 = 0x134;
 const BTN_TL: u16 = 0x136;
 const BTN_TR: u16 = 0x137;
+const BTN_TL2: u16 = 0x138;
+const BTN_TR2: u16 = 0x139;
 const BTN_SELECT: u16 = 0x13a;
 const BTN_START: u16 = 0x13b;
 const BTN_MODE: u16 = 0x13c;
@@ -40,6 +42,8 @@ const ABS_HAT0X: u16 = 0x10;
 const ABS_HAT0Y: u16 = 0x11;
 
 const BUS_USB: u16 = 0x03;
+
+const DS_EVDEV_VERSION: u16 = 0x8111;
 
 const UINPUT_IOCTL_BASE: u64 = b'U' as u64;
 const UINPUT_MAX_NAME_SIZE: usize = 80;
@@ -116,8 +120,8 @@ impl VirtualGamepad {
                 }
             }
             for key in [
-                BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST, BTN_TL, BTN_TR, BTN_SELECT, BTN_START,
-                BTN_MODE, BTN_THUMBL, BTN_THUMBR,
+                BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST, BTN_TL, BTN_TR, BTN_TL2, BTN_TR2,
+                BTN_SELECT, BTN_START, BTN_MODE, BTN_THUMBL, BTN_THUMBR,
             ] {
                 if libc::ioctl(fd, ui_set_keybit() as _, key as i32) < 0 {
                     bail!("UI_SET_KEYBIT failed");
@@ -139,7 +143,7 @@ impl VirtualGamepad {
             bustype: BUS_USB,
             vendor,
             product,
-            version: 1,
+            version: DS_EVDEV_VERSION,
         };
 
         let mut set_range = |axis: u16, min: i32, max: i32, flat: i32| {
@@ -228,6 +232,8 @@ impl VirtualGamepad {
         self.emit(EV_KEY, BTN_NORTH, (b & BTN_TRIANGLE != 0) as i32);
         self.emit(EV_KEY, BTN_TL, (b & BTN_L1 != 0) as i32);
         self.emit(EV_KEY, BTN_TR, (b & BTN_R1 != 0) as i32);
+        self.emit(EV_KEY, BTN_TL2, (b & BTN_L2 != 0) as i32);
+        self.emit(EV_KEY, BTN_TR2, (b & BTN_R2 != 0) as i32);
         self.emit(EV_KEY, BTN_SELECT, (b & BTN_CREATE != 0) as i32);
         self.emit(EV_KEY, BTN_START, (b & BTN_OPTIONS != 0) as i32);
         self.emit(EV_KEY, BTN_MODE, (b & BTN_PS != 0) as i32);
