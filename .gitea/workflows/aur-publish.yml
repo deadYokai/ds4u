@@ -1,5 +1,4 @@
 name: Publish to AUR
-
 on:
   push:
     tags:
@@ -7,51 +6,55 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Version to publish'
+        description: 'Version to publish (e.g. v0.1.3 or 0.1.3)'
         required: true
-
 jobs:
   publish-aur:
     runs-on: self-hosted
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set version from tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "PKGVER=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
-          else
-            echo "PKGVER=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
-          fi
-
+          TAG="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          echo "PKGVER=${TAG#v}" >> "$GITHUB_ENV"
+      - name: Check tools
+        run: |
+          command -v updpkgsums >/dev/null || { echo "pacman-contrib is required on the runner (provides updpkgsums)"; exit 1; }
+          command -v makepkg >/dev/null || { echo "makepkg not found"; exit 1; }
       - name: Setup SSH for AUR
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.AUR_SSH_KEY }}" > ~/.ssh/aur
+          chmod 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
-          echo "Host aur.archlinux.org" >> ~/.ssh/config
-          echo "  IdentityFile ~/.ssh/aur" >> ~/.ssh/config
-          echo "  User aur" >> ~/.ssh/config
-          echo "  StrictHostKeyChecking no" >> ~/.ssh/config
-
+          cat > ~/.ssh/config << 'EOF'
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur
+            User aur
+            StrictHostKeyChecking accept-new
+          EOF
+          chmod 600 ~/.ssh/config
       - name: Configure git
+        env:
+          AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
         run: |
           git config --global user.name "deadYokai"
-          git config --global user.email "${{ secrets.AUR_EMAIL }}"
-
-      - name: Update PKGBUILD version (stable)
+          git config --global user.email "$AUR_EMAIL"
+      - name: Update PKGBUILD version and checksums (stable)
         run: |
           cd packages/aur
           sed -i "s/^pkgver=.*/pkgver=$PKGVER/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-
+          updpkgsums
       - name: Update .SRCINFO (stable)
         run: |
           cd packages/aur
           makepkg --printsrcinfo > .SRCINFO
-
       - name: Push stable to AUR
         run: |
           rm -rf /tmp/aur-ds4u
@@ -62,14 +65,12 @@ jobs:
           git add PKGBUILD .SRCINFO
           git diff --cached --quiet || git commit -m "chore: update to v$PKGVER"
           git push
-
       - name: Update PKGBUILD version (git)
         run: |
           cd packages/aur-git
           makepkg -od --noprepare --nodeps
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
           makepkg --printsrcinfo > .SRCINFO
-
       - name: Push git to AUR
         run: |
           rm -rf /tmp/aur-ds4u-git
@@ -80,3 +81,8 @@ jobs:
           git add PKGBUILD .SRCINFO
           git diff --cached --quiet || git commit -m "chore: sync with v$PKGVER release"
           git push
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/aur
+          rm -rf /tmp/aur-ds4u /tmp/aur-ds4u-git
