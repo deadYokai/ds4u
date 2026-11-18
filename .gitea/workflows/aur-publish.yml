@@ -14,16 +14,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set version from tag
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           TAG="${INPUT_TAG:-$GITHUB_REF_NAME}"
           echo "PKGVER=${TAG#v}" >> "$GITHUB_ENV"
+
       - name: Check tools
         run: |
           command -v updpkgsums >/dev/null || { echo "pacman-contrib is required on the runner (provides updpkgsums)"; exit 1; }
           command -v makepkg >/dev/null || { echo "makepkg not found"; exit 1; }
+
       - name: Setup SSH for AUR
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
@@ -39,48 +42,108 @@ jobs:
             StrictHostKeyChecking accept-new
           EOF
           chmod 600 ~/.ssh/config
+
       - name: Configure git
         env:
           AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
         run: |
           git config --global user.name "deadYokai"
           git config --global user.email "$AUR_EMAIL"
+
+      - name: Clone existing AUR repo (stable)
+        run: |
+          rm -rf /tmp/aur-ds4u
+          git clone ssh://aur@aur.archlinux.org/ds4u.git /tmp/aur-ds4u
+
+      - name: Compute pkgrel (stable)
+        run: |
+          OLD_PKGBUILD=/tmp/aur-ds4u/PKGBUILD
+          if [ -f "$OLD_PKGBUILD" ]; then
+            OLD_PKGVER=$(grep -oP '^pkgver=\K.*' "$OLD_PKGBUILD" || true)
+            OLD_PKGREL=$(grep -oP '^pkgrel=\K.*' "$OLD_PKGBUILD" || true)
+          else
+            OLD_PKGVER=""
+            OLD_PKGREL="0"
+          fi
+
+          if [ "$OLD_PKGVER" = "$PKGVER" ] && [ -n "$OLD_PKGREL" ]; then
+            NEW_PKGREL=$((OLD_PKGREL + 1))
+          else
+            NEW_PKGREL=1
+          fi
+
+          echo "Old: pkgver=$OLD_PKGVER pkgrel=$OLD_PKGREL -> New: pkgver=$PKGVER pkgrel=$NEW_PKGREL"
+          echo "PKGREL=$NEW_PKGREL" >> "$GITHUB_ENV"
+
       - name: Update PKGBUILD version and checksums (stable)
         run: |
           cd packages/aur
           sed -i "s/^pkgver=.*/pkgver=$PKGVER/" PKGBUILD
-          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=$PKGREL/" PKGBUILD
           updpkgsums
+
       - name: Update .SRCINFO (stable)
         run: |
           cd packages/aur
           makepkg --printsrcinfo > .SRCINFO
+
       - name: Push stable to AUR
         run: |
-          rm -rf /tmp/aur-ds4u
-          git clone ssh://aur@aur.archlinux.org/ds4u.git /tmp/aur-ds4u
           cp packages/aur/PKGBUILD /tmp/aur-ds4u/PKGBUILD
           cp packages/aur/.SRCINFO /tmp/aur-ds4u/.SRCINFO
           cd /tmp/aur-ds4u
           git add PKGBUILD .SRCINFO
-          git diff --cached --quiet || git commit -m "chore: update to v$PKGVER"
+          git diff --cached --quiet || git commit -m "chore: update to v$PKGVER-$PKGREL"
           git push
-      - name: Update PKGBUILD version (git)
-        run: |
-          cd packages/aur-git
-          makepkg -od --noprepare --nodeps
-          sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-          makepkg --printsrcinfo > .SRCINFO
-      - name: Push git to AUR
+
+      - name: Clone existing AUR repo (git)
         run: |
           rm -rf /tmp/aur-ds4u-git
           git clone ssh://aur@aur.archlinux.org/ds4u-git.git /tmp/aur-ds4u-git
+
+      - name: Update pkgver via makepkg (git)
+        run: |
+          cd packages/aur-git
+          makepkg -od --noprepare --nodeps
+
+      - name: Compute pkgrel (git)
+        run: |
+          cd packages/aur-git
+          NEW_PKGVER=$(grep -oP '^pkgver=\K.*' PKGBUILD)
+
+          OLD_PKGBUILD=/tmp/aur-ds4u-git/PKGBUILD
+          if [ -f "$OLD_PKGBUILD" ]; then
+            OLD_PKGVER=$(grep -oP '^pkgver=\K.*' "$OLD_PKGBUILD" || true)
+            OLD_PKGREL=$(grep -oP '^pkgrel=\K.*' "$OLD_PKGBUILD" || true)
+          else
+            OLD_PKGVER=""
+            OLD_PKGREL="0"
+          fi
+
+          if [ "$OLD_PKGVER" = "$NEW_PKGVER" ] && [ -n "$OLD_PKGREL" ]; then
+            NEW_PKGREL=$((OLD_PKGREL + 1))
+          else
+            NEW_PKGREL=1
+          fi
+
+          echo "Old: pkgver=$OLD_PKGVER pkgrel=$OLD_PKGREL -> New: pkgver=$NEW_PKGVER pkgrel=$NEW_PKGREL"
+          echo "GITPKGREL=$NEW_PKGREL" >> "$GITHUB_ENV"
+
+      - name: Update PKGBUILD pkgrel and .SRCINFO (git)
+        run: |
+          cd packages/aur-git
+          sed -i "s/^pkgrel=.*/pkgrel=$GITPKGREL/" PKGBUILD
+          makepkg --printsrcinfo > .SRCINFO
+
+      - name: Push git to AUR
+        run: |
           cp packages/aur-git/PKGBUILD /tmp/aur-ds4u-git/PKGBUILD
           cp packages/aur-git/.SRCINFO /tmp/aur-ds4u-git/.SRCINFO
           cd /tmp/aur-ds4u-git
           git add PKGBUILD .SRCINFO
           git diff --cached --quiet || git commit -m "chore: sync with v$PKGVER release"
           git push
+
       - name: Cleanup
         if: always()
         run: |
