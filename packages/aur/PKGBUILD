@@ -10,7 +10,7 @@ license=('MIT')
 provides=('ds4u')
 conflicts=('ds4u-git')
 depends=('hidapi' 'libxkbcommon' 'openssl')
-makedepends=('rust' 'cargo' 'clang' 'lld')
+makedepends=('rust' 'cargo' 'clang' 'lld' 'alsa-lib')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
