@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     common::{HapticPattern, LightbarEffect, MicLedState},
-    dualsense::BatteryInfo,
+    dualsense::{BatteryInfo, DeviceInfo},
     inputs::ControllerState,
     profiles::Profile,
     transform::InputTransform,
@@ -158,6 +158,10 @@ pub enum DaemonCommand {
     },
     GetActiveProfile,
     Shutdown,
+    ListDevices,
+    SelectDevice {
+        id: Option<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -187,6 +191,9 @@ pub enum DaemonResponse {
     ActiveProfile {
         name: String,
     },
+    DeviceList {
+        devices: Vec<DeviceInfo>,
+    },
 }
 
 pub struct IpcClient {
@@ -210,6 +217,25 @@ impl IpcClient {
         let mut c = Self::connect(addr).ok()?;
         c.send(DaemonCommand::Ping).ok()?;
         matches!(c.recv().ok()?, DaemonResponse::Pong).then_some(c)
+    }
+
+    pub fn list_devices(&mut self) -> Result<Vec<DeviceInfo>> {
+        match self.request(DaemonCommand::ListDevices)? {
+            DaemonResponse::DeviceList { devices } => Ok(devices),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => bail!("Unexpected response"),
+        }
+    }
+
+    pub fn select_device(&mut self, id: Option<&str>) -> Result<()> {
+        match self.request(DaemonCommand::SelectDevice {
+            id: id.map(str::to_string),
+        })? {
+            DaemonResponse::Ok => Ok(()),
+            DaemonResponse::NoDevice => bail!("Controller not found"),
+            DaemonResponse::Error { message } => bail!("{}", message),
+            _ => Ok(()),
+        }
     }
 
     pub fn send(&mut self, cmd: DaemonCommand) -> Result<()> {

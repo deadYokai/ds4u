@@ -1,4 +1,5 @@
 use std::{
+    ffi::CString,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -123,60 +124,54 @@ pub struct DualSense {
     product_id: u16,
     vendor_id: u16,
     serial: String,
+    path: String,
     update_mode: Arc<AtomicBool>,
 }
 
 impl DualSense {
     pub fn new(api: &HidApi, serial: Option<&str>) -> Result<Self> {
-        let device_info = api
-            .device_list()
-            .find(|info| {
-                if info.vendor_id() != DS_VID {
-                    return false;
-                }
-
-                if info.product_id() != DS_PID && info.product_id() != DSE_PID {
-                    return false;
-                }
-
-                if let Some(s) = serial {
-                    return info.serial_number() == Some(s);
-                }
-
-                true
-            })
-            .ok_or_else(|| {
-                if let Some(s) = serial {
+        let mut list = discover(api);
+        let desc = match serial {
+            Some(s) => list
+                .into_iter()
+                .find(|d| d.id == s || d.serial == s)
+                .ok_or_else(|| {
                     anyhow!(
-                        "DualSense controller '{}' not found.
-Check connection and try refreshing",
+                        "DualSense controller '{}' not found.\nCheck connection and try refreshing",
                         s
                     )
-                } else {
-                    anyhow!(
-                        "No DualSense controller found.
-Please connect your controller via USB or Bluetooth."
-                    )
+                })?,
+            None => {
+                if list.is_empty() {
+                    bail!(
+                        "No DualSense controller found.\nPlease connect your controller via USB or Bluetooth."
+                    );
                 }
-            })?;
+                list.remove(0)
+            }
+        };
+        Self::open_desc(api, &desc)
+    }
 
-        let product_id = device_info.product_id();
-        let serial = device_info.serial_number().unwrap_or("Unknown").to_string();
-        let device = device_info.open_device(api)?;
-        let is_bt = device_info.interface_number() == -1;
-        let vendor_id = device_info.vendor_id();
-
+    pub fn open_desc(api: &HidApi, d: &DeviceDesc) -> Result<Self> {
+        let cpath = CString::new(d.path.as_bytes()).context("invalid hid path")?;
+        let device = api.open_path(&cpath)?;
         Ok(DualSense {
             device,
-            is_bt,
+            is_bt: d.is_bt,
             output_seq: 0,
             haptics_output_seq: 0,
             haptics_packet_counter: 0,
-            product_id,
-            vendor_id,
-            serial,
+            product_id: d.product_id,
+            vendor_id: d.vendor_id,
+            serial: d.id.clone(),
+            path: d.path.clone(),
             update_mode: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    pub fn hid_path(&self) -> &str {
+        &self.path
     }
 
     pub fn update_mode_flag(&self) -> Arc<AtomicBool> {
@@ -994,4 +989,74 @@ pub fn list_devices(api: &HidApi) -> Vec<String> {
             format!("{} ({})", serial, connection)
         })
         .collect()
+}
+
+#[derive(Clone, Debug)]
+pub struct DeviceDesc {
+    pub id: String,
+    pub serial: String,
+    pub product_id: u16,
+    pub vendor_id: u16,
+    pub is_bt: bool,
+    pub path: String,
+}
+
+impl DeviceDesc {
+    pub fn info(&self, index: usize) -> DeviceInfo {
+        DeviceInfo {
+            id: self.id.clone(),
+            serial: self.serial.clone(),
+            product_id: self.product_id,
+            is_bt: self.is_bt,
+            index,
+            profile: String::new(),
+            battery: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    pub id: String,
+    pub serial: String,
+    pub product_id: u16,
+    pub is_bt: bool,
+    pub index: usize,
+    pub profile: String,
+    pub battery: Option<BatteryInfo>,
+}
+
+pub fn discover(api: &HidApi) -> Vec<DeviceDesc> {
+    let mut out: Vec<DeviceDesc> = Vec::new();
+    for info in api.device_list() {
+        if info.vendor_id() != DS_VID
+            || (info.product_id() != DS_PID && info.product_id() != DSE_PID)
+        {
+            continue;
+        }
+        let path = info.path().to_string_lossy().into_owned();
+        let serial = info
+            .serial_number()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let id = serial.clone().unwrap_or_else(|| format!("hidraw:{path}"));
+        let desc = DeviceDesc {
+            id,
+            serial: serial.unwrap_or_else(|| "Unknown".into()),
+            product_id: info.product_id(),
+            vendor_id: info.vendor_id(),
+            is_bt: info.interface_number() == -1,
+            path,
+        };
+        match out.iter().position(|d| d.id == desc.id) {
+            Some(i) => {
+                if out[i].is_bt && !desc.is_bt {
+                    out[i] = desc;
+                }
+            }
+            None => out.push(desc),
+        }
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out
 }

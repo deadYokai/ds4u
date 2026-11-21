@@ -1,10 +1,10 @@
 use egui::{Color32, CornerRadius, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
+use super::widgets;
 use crate::app::DS4UApp;
+use crate::common::DSE_PID;
 use crate::state::Section;
 use crate::ui::widgets::{accent_alpha, sep_color};
-
-use super::widgets;
 
 const NAV: &[(Section, &str)] = &[
     (Section::Inputs, "Inputs"),
@@ -97,8 +97,19 @@ impl DS4UApp {
                 .as_ref()
                 .map(|p| p.name.clone())
                 .unwrap_or_else(|| "Default".into());
+            let which = if self.devices.len() > 1 {
+                let n = self
+                    .devices
+                    .iter()
+                    .find(|d| Some(&d.id) == self.selected_device.as_ref())
+                    .map(|d| d.index + 1)
+                    .unwrap_or(1);
+                format!(" // #{n}")
+            } else {
+                String::new()
+            };
             ui.label(
-                RichText::new(format!("DS4U // {}", prof))
+                RichText::new(format!("DS4U // {}{}", prof, which))
                     .size(15.0)
                     .color(Color32::from_rgba_unmultiplied(255, 255, 255, 115)),
             );
@@ -115,7 +126,7 @@ impl DS4UApp {
                     p.rect_stroke(
                         r,
                         CornerRadius::same(2),
-                        Stroke::new(1.3, Color32::from_rgba_unmultiplied(255, 255, 255, 102)),
+                        Stroke::new(1.3_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 102)),
                         StrokeKind::Inside,
                     );
                     let fill_w = (bat.capacity as f32 / 100.0).clamp(0.05, 1.0) * 24.0;
@@ -160,7 +171,7 @@ impl DS4UApp {
                     p.rect_stroke(
                         rect,
                         CornerRadius::same(2),
-                        Stroke::new(1.0, c.warning()),
+                        Stroke::new(1.0_f32, c.warning()),
                         StrokeKind::Inside,
                     );
                     p.text(
@@ -230,6 +241,9 @@ impl DS4UApp {
         self.render_title(ui);
 
         let connected = self.is_connected();
+        if connected {
+            self.render_device_picker(ui);
+        }
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -264,5 +278,81 @@ impl DS4UApp {
                 });
             });
         let _ = accent_alpha;
+    }
+
+    fn render_device_picker(&mut self, ui: &mut Ui) {
+        // if self.devices.len() < 2 {
+        //     return;
+        // }
+        let mut pick: Option<String> = None;
+
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.add_space(20.0);
+            ui.label(
+                RichText::new("CONTROLLERS")
+                    .size(11.0)
+                    .color(Color32::from_rgba_unmultiplied(255, 255, 255, 102)),
+            );
+        });
+        ui.add_space(4.0);
+
+        for d in &self.devices {
+            let active = self.selected_device.as_deref() == Some(d.id.as_str());
+            let (rect, resp) =
+                ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
+            let c = &self.theme.colors;
+            let p = ui.painter();
+
+            if active {
+                p.rect_filled(rect, 0.0, widgets::accent_alpha(c, 84));
+                p.rect_filled(
+                    Rect::from_min_size(rect.min, vec2(3.0, rect.height())),
+                    0.0,
+                    c.accent(),
+                );
+            } else if resp.hovered() {
+                p.rect_filled(rect, 0.0, widgets::hovered_alpha(c, 32));
+            }
+
+            let model = if d.product_id == DSE_PID {
+                "DualSense Edge"
+            } else {
+                "DualSense"
+            };
+            let link = if d.is_bt { "Bluetooth" } else { "USB" };
+            let sub = match &d.battery {
+                Some(b) => format!("{} | {}%", link, b.capacity),
+                None => link.to_string(),
+            };
+            let title_col = if active {
+                Color32::WHITE
+            } else {
+                Color32::from_rgba_unmultiplied(255, 255, 255, 178)
+            };
+            p.text(
+                pos2(rect.min.x + 20.0, rect.min.y + 15.0),
+                egui::Align2::LEFT_CENTER,
+                format!("{} {}", model, d.index + 1),
+                egui::FontId::proportional(15.0),
+                title_col,
+            );
+            p.text(
+                pos2(rect.min.x + 20.0, rect.min.y + 32.0),
+                egui::Align2::LEFT_CENTER,
+                sub,
+                egui::FontId::proportional(11.0),
+                Color32::from_rgba_unmultiplied(255, 255, 255, 115),
+            );
+
+            if resp.clicked() && !active {
+                pick = Some(d.id.clone());
+            }
+        }
+        ui.add_space(6.0);
+
+        if let Some(id) = pick {
+            self.switch_device(&id);
+        }
     }
 }

@@ -9,7 +9,7 @@ use crate::{
     backend::{ControllerBackend, DirectBackend, IpcBackend, TRIGGER_OFF},
     common::*,
     daemon::DaemonManager,
-    dualsense::{self, BatteryInfo, DualSense},
+    dualsense::{self, BatteryInfo, DeviceInfo, DualSense},
     firmware_controller::FirmwareController,
     input_poller::InputPoller,
     ipc::{IpcClient, socket_path},
@@ -65,6 +65,8 @@ pub(crate) struct DS4UApp {
     pub(crate) egui_ctx: Option<egui::Context>,
 
     pub(crate) controller_serial: Option<String>,
+    pub(crate) devices: Vec<DeviceInfo>,
+    pub(crate) selected_device: Option<String>,
 
     pub(crate) status_message: String,
     pub(crate) error_message: String,
@@ -184,6 +186,8 @@ impl DS4UApp {
             egui_ctx: None,
 
             controller_serial: None,
+            devices: Vec::new(),
+            selected_device: None,
 
             status_message: String::new(),
             error_message: String::new(),
@@ -204,22 +208,8 @@ impl DS4UApp {
 
         app.check_for_controller();
 
-        {
-            let name = if app.settings.profile.is_empty() {
-                "Default".to_string()
-            } else {
-                app.settings.profile.clone()
-            };
-
-            let profile = if app.profile_manager.profile_exists(&name) {
-                app.profile_manager
-                    .load_profile(&name)
-                    .unwrap_or_else(|_| app.profile_manager.ensure_default_exists())
-            } else {
-                app.profile_manager.ensure_default_exists()
-            };
-
-            app.load_profile(&profile);
+        if app.current_profile.is_none() {
+            app.load_device_profile();
         }
 
         app
@@ -252,11 +242,19 @@ impl DS4UApp {
 
         let handle = if self.ipc.is_some() {
             let path = socket_path();
+            let sel = self.selected_device.clone();
             thread::spawn(move || {
                 let mut client = match IpcClient::connect(&path) {
                     Ok(c) => c,
                     Err(_) => return,
                 };
+
+                if let Some(id) = sel.as_deref()
+                    && client.select_device(Some(id)).is_err()
+                {
+                    return;
+                }
+
                 let mut last_b = u32::MAX;
                 let mut last_d = 0xFFu8;
                 while !stop_clone.load(sync::atomic::Ordering::Relaxed) {
@@ -325,8 +323,11 @@ impl DS4UApp {
     }
 
     fn connect_controller(&mut self) {
-        match DualSense::new(&self.api, None) {
+        let opened = DualSense::new(&self.api, self.selected_device.as_deref())
+            .or_else(|_| DualSense::new(&self.api, None));
+        match opened {
             Ok(ds) => {
+                self.selected_device = Some(ds.serial().to_string());
                 if let Ok((version, build_date, build_time)) = ds.get_firmware_info() {
                     self.firmware.current_version = Some(version);
                     self.firmware.build_date = Some(build_date);
@@ -361,18 +362,36 @@ impl DS4UApp {
     pub(crate) fn connect_via_daemon(&mut self, client: Arc<Mutex<IpcClient>>) {
         let mut c = mlock(&client);
 
+        if let Ok(list) = c.list_devices() {
+            self.devices = list;
+        }
+        let pick = self
+            .selected_device
+            .clone()
+            .filter(|id| self.devices.iter().any(|d| &d.id == id))
+            .or_else(|| self.devices.first().map(|d| d.id.clone()));
+
+        let Some(id) = pick else {
+            drop(c);
+            self.ipc = Some(client);
+            self.status_message = "Attached to daemon (waiting for device)".into();
+            return;
+        };
+        if c.select_device(Some(&id)).is_err() {
+            return;
+        }
+        self.selected_device = Some(id);
+
         if let Ok(Some((serial, pid, is_bt))) = c.get_controller_info() {
             self.controller_serial = Some(serial);
             self.controller_is_bt = Some(is_bt);
             self.controller_product_id = Some(pid);
         }
-
         if let Ok((ver, date, time)) = c.get_firmware_info() {
             self.firmware.current_version = Some(ver);
             self.firmware.build_date = Some(date);
             self.firmware.build_time = Some(time);
         }
-
         drop(c);
 
         self.firmware.latest_version = None;
@@ -380,14 +399,52 @@ impl DS4UApp {
         self.status_message = "Controller connected (via daemon)".to_string();
         self.error_message.clear();
         self.lightbar.enabled = true;
+
+        self.load_device_profile();
         self.update_battery();
-        self.apply_lightbar();
-        self.apply_player_leds();
-        self.apply_microphone();
-        self.apply_input_transform();
-        self.apply_triggers();
-        self.apply_gyro();
-        self.apply_haptic_pattern();
+    }
+
+    pub(crate) fn load_device_profile(&mut self) {
+        let name = self
+            .controller_serial
+            .as_deref()
+            .map(|id| self.settings.profile_for(id).to_string())
+            .unwrap_or_else(|| self.settings.profile.clone());
+        let name = if name.is_empty() {
+            "Default".to_string()
+        } else {
+            name
+        };
+
+        let profile = if self.profile_manager.profile_exists(&name) {
+            self.profile_manager
+                .load_profile(&name)
+                .unwrap_or_else(|_| self.profile_manager.ensure_default_exists())
+        } else {
+            self.profile_manager.ensure_default_exists()
+        };
+        self.load_profile(&profile);
+    }
+
+    pub(crate) fn switch_device(&mut self, id: &str) {
+        if self.selected_device.as_deref() == Some(id) && self.is_connected() {
+            return;
+        }
+        self.stop_input_polling();
+        if self.haptic_stream_active() {
+            self.stop_raw_haptics();
+        }
+        self.input.controller_state = None;
+        self.battery_info = None;
+        self.selected_device = Some(id.to_string());
+
+        if let Some(client) = self.ipc.clone() {
+            self.connect_via_daemon(client);
+        } else {
+            self.controller = None;
+            self.connect_controller();
+            self.load_device_profile();
+        }
     }
 
     fn disconnect_controller(&mut self) {
@@ -455,7 +512,8 @@ impl DS4UApp {
                     self.status_message = "Firmware update completed".to_string();
                     self.firmware.progress = 100;
                     self.firmware.update_mode_flag = None;
-                    self.daemon_manager.set_update_in_progress(false);
+                    self.daemon_manager
+                        .set_update_in_progress(self.selected_device.as_deref(), false);
                     if self.firmware.used_daemon {
                         self.firmware.used_daemon = false;
                         self.controller = None;
@@ -472,7 +530,8 @@ impl DS4UApp {
                     self.error_message = e;
                     self.firmware.progress = 0;
                     self.firmware.update_mode_flag = None;
-                    self.daemon_manager.set_update_in_progress(false);
+                    self.daemon_manager
+                        .set_update_in_progress(self.selected_device.as_deref(), false);
                     if self.firmware.used_daemon {
                         self.firmware.used_daemon = false;
                         self.controller = None;
@@ -558,15 +617,17 @@ impl DS4UApp {
             return true;
         }
 
-        self.daemon_manager.set_update_in_progress(true);
+        self.daemon_manager
+            .set_update_in_progress(self.selected_device.as_deref(), true);
         sleep(Duration::from_millis(1500));
 
         if self.api.refresh_devices().is_err() {
-            self.daemon_manager.set_update_in_progress(false);
+            self.daemon_manager
+                .set_update_in_progress(self.selected_device.as_deref(), false);
             return false;
         }
 
-        match DualSense::new(&self.api, None) {
+        match DualSense::new(&self.api, self.selected_device.as_deref()) {
             Ok(ds) => {
                 self.controller = Some(Arc::new(Mutex::new(ds)));
                 self.firmware.used_daemon = true;
@@ -574,7 +635,8 @@ impl DS4UApp {
             }
             Err(e) => {
                 self.error_message = format!("Cannot open device for flash update: {}", e);
-                self.daemon_manager.set_update_in_progress(false);
+                self.daemon_manager
+                    .set_update_in_progress(self.selected_device.as_deref(), false);
                 false
             }
         }
@@ -717,7 +779,10 @@ impl DS4UApp {
 
         self.current_profile = Some(profile.clone());
 
-        self.settings.profile = profile.name.clone();
+        match self.controller_serial.clone() {
+            Some(id) => self.settings.set_profile_for(&id, &profile.name),
+            None => self.settings.profile = profile.name.clone(),
+        }
         self.settings_manager.save(&self.settings);
 
         self.apply_lightbar();
@@ -784,30 +849,45 @@ impl DS4UApp {
             return;
         }
 
-        if let Some(ref ipc) = self.ipc.clone() {
-            let still_present = matches!(mlock(ipc).get_controller_info(), Ok(Some(_)));
-            if !still_present {
-                self.stop_input_polling();
-                self.disconnect_controller();
+        if let Some(ipc) = self.ipc.clone() {
+            let list = mlock(&ipc).list_devices();
+            match list {
+                Err(_) => {
+                    self.stop_input_polling();
+                    self.disconnect_controller();
+                }
+                Ok(list) => {
+                    self.devices = list;
+                    if self.devices.is_empty() {
+                        self.stop_input_polling();
+                        self.disconnect_controller();
+                        return;
+                    }
+                    let selected_present = self
+                        .controller_serial
+                        .as_ref()
+                        .is_some_and(|id| self.devices.iter().any(|d| &d.id == id));
+                    if !selected_present {
+                        let first = self.devices[0].id.clone();
+                        self.selected_device = None;
+                        self.switch_device(&first);
+                    }
+                }
             }
             return;
         }
 
-        let Some(serial) = self.controller_serial.clone() else {
-            return;
-        };
-
         if self.api.refresh_devices().is_err() {
             return;
         }
+        let found = dualsense::discover(&self.api);
+        self.devices = found.iter().enumerate().map(|(i, d)| d.info(i)).collect();
 
-        let still_present = self.api.device_list().any(|info| {
-            info.vendor_id() == DS_VID
-                && (info.product_id() == DS_PID || info.product_id() == DSE_PID)
-                && info.serial_number() == Some(serial.as_str())
-        });
-
-        if !still_present {
+        let present = self
+            .controller_serial
+            .as_ref()
+            .is_some_and(|id| found.iter().any(|d| &d.id == id));
+        if !present && self.controller_serial.is_some() {
             self.stop_input_polling();
             self.disconnect_controller();
         }
