@@ -2,6 +2,14 @@
 
 [![Stand For Ukraine](https://img.shields.io/badge/Stand_For_Ukraine-find_a_charity-blue?style=for-the-badge)](https://standforukraine.com/)
 
+
+## Support project itself:
+[![MySite](https://img.shields.io/badge/yokai.digital-black?style=for-the-badge)](https://yokai.digital)
+[![Paypal](https://img.shields.io/badge/Paypal-black?style=for-the-badge&logo=paypal)](https://www.paypal.com/donate/?hosted_button_id=RLGYGXH4LZ8PC)
+[![Monobank](https://img.shields.io/badge/Monobank-black?style=for-the-badge)](https://send.monobank.ua/jar/9oVcUiHxPd)
+[![Liberapay](https://img.shields.io/liberapay/receives/deadYokai.svg?logo=liberapay&style=for-the-badge&logoColor=white&labelColor=black&color=orange&label=Liberapay)](https://liberapay.com/deadYokai/donate)
+
+
 ---
 
 [![Gitea](https://img.shields.io/badge/Gitea-Repo-black)](https://git.yokai.digital/deadYokai/ds4u)
@@ -10,6 +18,7 @@
 
 [![AUR](https://img.shields.io/aur/version/ds4u?style=for-the-badge)](https://aur.archlinux.org/packages/ds4u)
 [![AURGIT](https://img.shields.io/aur/version/ds4u-git?style=for-the-badge)](https://aur.archlinux.org/packages/ds4u-git)
+
 
 # DS4U - DualSense for You
 
@@ -259,10 +268,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Todo
 - [ ] other possible issues
 - [ ] DualSense Egde support
-
-## Support:
-[![MySite](https://img.shields.io/badge/yokai.digital-black?style=for-the-badge)](https://yokai.digital)
-[![Paypal](https://img.shields.io/badge/Paypal-black?style=for-the-badge&logo=paypal)](https://www.paypal.com/donate/?hosted_button_id=RLGYGXH4LZ8PC)
-[![Monobank](https://img.shields.io/badge/Monobank-black?style=for-the-badge)](https://send.monobank.ua/jar/9oVcUiHxPd)
-[![Liberapay](https://img.shields.io/liberapay/receives/deadYokai.svg?logo=liberapay&style=for-the-badge&logoColor=white&labelColor=black&color=orange&label=Liberapay)](https://liberapay.com/deadYokai/donate)
 
